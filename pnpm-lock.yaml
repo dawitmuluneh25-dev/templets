@@ -203,6 +203,15 @@ importers:
         specifier: workspace:*
         version: link:../tokens
 
+  packages/corpus:
+    dependencies:
+      '@reporting/template-schema':
+        specifier: workspace:*
+        version: link:../template-schema
+      '@reporting/tokens':
+        specifier: workspace:*
+        version: link:../tokens
+
   packages/template-schema: {}
 
   packages/tokens: {}

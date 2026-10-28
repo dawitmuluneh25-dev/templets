@@ -10,6 +10,8 @@ export default defineConfig({
     // output is what turbo type-checks and what ships.
     alias: {
       '@reporting/tokens': fromRoot('./packages/tokens/src/index.ts'),
+      '@reporting/template-schema': fromRoot('./packages/template-schema/src/index.ts'),
+      '@reporting/validation': fromRoot('./packages/validation/src/index.ts'),
     },
   },
   test: {

@@ -70,10 +70,17 @@ jobs:
             exit 1
           fi
 
-      # Temporary: the corpus round-trip gate belongs here once the importer
-      # exists (P1 step 5). Until then CI cannot prove the fidelity invariant.
-      - name: Corpus round-trip (not yet wired)
-        run: echo "P1 step 5 wires the 427/427 importer assertion into this job."
+      # The fidelity gate (plan §17, P1 exit): 427 files in, 427 out, byte for
+      # byte, zero quarantined. Exit code 2 from the CLI means a file failed, and
+      # a failed import never looks like a successful one.
+      - name: Corpus round-trip
+        run: pnpm corpus
+
+      # Determinism: regenerating the artefacts must produce exactly what is
+      # committed. If this fails, either the importer changed behaviour or the
+      # committed output was edited by hand.
+      - name: Artefacts reproducible
+        run: git diff --exit-code -- corpus
 
   commitlint:
     name: commit messages
