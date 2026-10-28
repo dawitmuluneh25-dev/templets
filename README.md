@@ -56,6 +56,7 @@ pnpm verify               # lint · format:check · typecheck · test · build
 | `pnpm lint` | ESLint flat config, one config at the root |
 | `pnpm typecheck` | `tsc --noEmit` per package; a package's dependencies are built first |
 | `pnpm test` | Vitest, from the root, resolving workspace packages to source |
+| `pnpm corpus` | Regenerate `corpus/` from the frozen export; exits non-zero if any file cannot round-trip |
 | `pnpm build` | `tsc` per package via Turborepo, into each package's `dist/` |
 | `pnpm verify` | All of the above, in the order CI runs them |
 
@@ -103,7 +104,8 @@ signing) are expensive to retrofit.
 - `main` is the trunk; work happens on short-lived branches and merges through review.
 - Every change that touches the template corpus or the importer must keep the 427/427 round-trip
   green — the corpus is the specification, and silent alteration of clinical wording is the one
-  failure mode this project cannot accept.
+  failure mode this project cannot accept. In the production workspace that gate is
+  `pnpm corpus` plus a CI check that the committed artefacts regenerate byte-identically.
 - Generated artifacts (screenshots, packaged ZIPs, sample PDFs) stay out of the tree; `.gitignore`
   covers them and the tools regenerate them on demand.
 
