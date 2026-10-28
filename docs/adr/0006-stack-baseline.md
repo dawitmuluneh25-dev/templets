@@ -73,6 +73,10 @@ requires a superseding ADR:
   not tag. Fonts are vendored, never fetched at render time.
 - **No floating ranges in `dependencies`.** `^` is permitted in `devDependencies` where a broken
   minor is recoverable by a revert; it is not permitted where the artefact is signed.
+- **TypeScript 6.0.3, not 7.x.** TypeScript 7 (the native compiler) is released, and
+  `typescript-eslint` refuses to load against it — which does not fail the lint step, it removes
+  it. Pinned to the last supported major until typescript-eslint ships TS 7 support. This is
+  exactly the class of decision that a lockfile would otherwise make silently.
 - **The stack is asserted, not assumed.** `pnpm lint`/`typecheck`/`test`/`build` on every PR is
   the mechanism; a documented stack that CI does not exercise is a wish.
 
@@ -135,5 +139,7 @@ requires a superseding ADR:
 - **The editor is replaced** → ADR-0005 already insulates the archive; only the view layer
   changes. If a replacement cannot express the token AST, that is a token-model ADR.
 - **Multi-region becomes a requirement** → revisit the job system and the Redis role.
+- **`typescript-eslint` supports TypeScript 7** → move to 7 in one commit, with the lint gate
+  verified as still running rather than merely present.
 - **A signed artefact ever renders differently from its signature-time bytes** → this is a
   defect in the pinning rules in §3, not a bug in a renderer, and this ADR is wrong until fixed.
