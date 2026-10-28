@@ -13,7 +13,7 @@
     "typecheck": "turbo run typecheck",
     "test": "vitest run",
     "corpus": "turbo run build --filter=@reporting/corpus... && node packages/corpus/dist/cli.js",
-    "db:migrate": "turbo run build --filter=@reporting/db... && node db/dist/cli.js",
+    "db:migrate": "turbo run build --filter=@reporting/db... && node --env-file-if-exists=.env.local db/dist/cli.js",
     "lint": "eslint .",
     "lint:commits": "commitlint --last",
     "format": "prettier --write .",
@@ -34,3 +34,4 @@
     "vitest": "^5.0.5"
   }
 }
+

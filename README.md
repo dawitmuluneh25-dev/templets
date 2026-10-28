@@ -57,6 +57,7 @@ pnpm verify               # lint · format:check · typecheck · test · build
 | `pnpm typecheck` | `tsc --noEmit` per package; a package's dependencies are built first |
 | `pnpm test` | Vitest, from the root, resolving workspace packages to source |
 | `pnpm corpus` | Regenerate `corpus/` from the frozen export; exits non-zero if any file cannot round-trip |
+| `pnpm db:migrate` | Apply pending migrations (needs `DATABASE_URL` in `.env.local`) |
 | `pnpm build` | `tsc` per package via Turborepo, into each package's `dist/` |
 | `pnpm verify` | All of the above, in the order CI runs them |
 
@@ -116,3 +117,4 @@ of those third-party files sit inside the organisation's own scope, and 168 file
 at all. Licensing for redistribution is unresolved (risk R1 in the production plan; measured
 provenance in [ADR-0004](docs/adr/0004-corpus-provenance-and-licensing.md)). Treat
 `alem-reporting-templates/` as reference material until that is settled.
+
