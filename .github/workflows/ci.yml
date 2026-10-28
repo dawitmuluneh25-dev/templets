@@ -1,0 +1,103 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# One run per ref. A CI that queues behind superseded commits teaches people to
+# ignore it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  TURBO_TELEMETRY_DISABLED: '1'
+  CI: 'true'
+
+jobs:
+  verify:
+    name: lint · format · typecheck · test · build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # Version comes from the root package.json "packageManager" field, so CI
+      # and a developer machine cannot disagree about the package manager.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      # --frozen-lockfile: a lockfile that differs from package.json fails here,
+      # not in a customer environment.
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      # The lockfile is an input to the build, so it must not be rewritten by it.
+      # Caught here rather than in a review comment.
+      - name: Lockfile unchanged
+        run: git diff --exit-code -- pnpm-lock.yaml
+
+      # ADR-0006: generated output is not source. If a build writes into a
+      # tracked path, this fails before someone commits a stale artefact.
+      - name: No tracked build output
+        run: |
+          if git status --porcelain -- ':!pnpm-lock.yaml' | grep -q .; then
+            echo "::error::The build modified tracked files. Commit the output or stop tracking it."
+            git status --porcelain
+            exit 1
+          fi
+
+      # Temporary: the corpus round-trip gate belongs here once the importer
+      # exists (P1 step 5). Until then CI cannot prove the fidelity invariant.
+      - name: Corpus round-trip (not yet wired)
+        run: echo "P1 step 5 wires the 427/427 importer assertion into this job."
+
+  commitlint:
+    name: commit messages
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The whole range has to exist locally to be linted.
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint commits on this branch
+        run: |
+          pnpm exec commitlint \
+            --from "${{ github.event.pull_request.base.sha }}" \
+            --to "${{ github.event.pull_request.head.sha }}"
