@@ -13,7 +13,7 @@ gets stored, where the tenancy line sits.
 | [0003](0003-tenancy-and-row-level-security.md) | `org_id` on every clinical row, RLS in the database | Accepted | 2026-10-29 |
 | [0004](0004-corpus-provenance-and-licensing.md) | Corpus: default-deny, immutable source, reviewable artefacts | Accepted (licence clearing pending) | 2026-10-29 |
 | [0005](0005-token-model-serialisation-boundary.md) | One serialisation boundary, versioned from the first row | Accepted | 2026-10-29 |
-| 0006 | Stack baseline (ratifies production plan §4) | **Not written** — needed before P1 exits | — |
+| [0006](0006-stack-baseline.md) | Stack baseline ratified, pinned; rejections are decisions | Accepted | 2026-10-29 |
 
 ## Format
 
