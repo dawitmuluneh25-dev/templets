@@ -23,6 +23,29 @@ jobs:
     name: lint · format · typecheck · test · build
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
+    # A real PostgreSQL 16, not a mock. The isolation test asserts that no row
+    # crosses between two tenants, and that assertion is only worth anything
+    # against the database that will serve patients.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Throwaway credentials for a container that dies with the job.
+      TEST_DATABASE_URL: postgres://reporting_owner:ci_owner@127.0.0.1:5432/reporting_test
+      TEST_APP_DATABASE_URL: postgres://reporting_app:ci_app@127.0.0.1:5432/reporting_test
+
     steps:
       - uses: actions/checkout@v4
 
@@ -48,6 +71,17 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+
+      # Two roles, not one: the application role owns nothing and cannot bypass
+      # RLS, which is the property the isolation test exercises.
+      - name: Create database roles
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h 127.0.0.1 -U postgres \
+            -v owner_password=ci_owner \
+            -v app_password=ci_app \
+            -f db/setup/bootstrap.sql
 
       - name: Test
         run: pnpm test
