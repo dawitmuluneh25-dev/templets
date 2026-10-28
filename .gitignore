@@ -75,3 +75,7 @@ scratch/
 *.bak
 *.orig
 *.rej
+
+# Turborepo local cache
+.turbo/
+

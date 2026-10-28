@@ -19,6 +19,12 @@ the documentation set that carries the project from prototype to production.
 │   ├── sw.js                      Service worker — app shell + templates only, never PHI
 │   ├── manifest.webmanifest       Installability
 │   └── README.md                  Prototype documentation: behaviour, limits, real vs. stubbed
+├── packages/                      Production workspace (pnpm + Turborepo) — see below
+│   ├── tokens/                    The serialisation boundary (ADR-0005)
+│   ├── template-schema/           Manifest contract and provenance classification (ADR-0004)
+│   ├── validation/                Severity vocabulary and findings
+│   └── contracts/                 Wire contract: resources, problem details, versioning
+├── apps/                          web · api · worker — created as each has something to assert
 ├── alem-reporting-templates/      Source corpus (do not edit — provenance for data/templates.json)
 │   ├── AlemHealth/                290 exported templates
 │   ├── Publicly Shared/           137 exported templates
@@ -33,6 +39,28 @@ the documentation set that carries the project from prototype to production.
     ├── history/                                 Superseded implementations, kept for provenance
     └── qa/                                      QA findings from the prototype build (reports only)
 ```
+
+## Production workspace
+
+The prototype and the production build live in one repository (ADR-0001). The prototype is frozen
+in `radiology-pwa/` and stays runnable; the workspace is where the product is built.
+
+```powershell
+corepack enable pnpm      # Node 22 is pinned in .nvmrc
+pnpm install --frozen-lockfile
+pnpm verify               # lint · format:check · typecheck · test · build
+```
+
+| Command | What it covers |
+|---|---|
+| `pnpm lint` | ESLint flat config, one config at the root |
+| `pnpm typecheck` | `tsc --noEmit` per package; a package's dependencies are built first |
+| `pnpm test` | Vitest, from the root, resolving workspace packages to source |
+| `pnpm build` | `tsc` per package via Turborepo, into each package's `dist/` |
+| `pnpm verify` | All of the above, in the order CI runs them |
+
+Decisions live in `docs/adr/`. Anything the code does that contradicts an accepted ADR is a bug
+until a superseding ADR merges.
 
 ## Run the prototype
 
@@ -81,6 +109,8 @@ signing) are expensive to retrofit.
 
 ## Third-party content
 
-The corpus includes 130 templates authored by RSNA and 127 authored by other platform users;
-licensing for redistribution is unresolved (risk R1 in the production plan). Treat
+The corpus includes 130 templates authored by RSNA and 128 authored by other platform users; 123
+of those third-party files sit inside the organisation's own scope, and 168 files carry no author
+at all. Licensing for redistribution is unresolved (risk R1 in the production plan; measured
+provenance in [ADR-0004](docs/adr/0004-corpus-provenance-and-licensing.md)). Treat
 `alem-reporting-templates/` as reference material until that is settled.

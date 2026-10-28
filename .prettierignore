@@ -1,0 +1,15 @@
+# Prose and data are reviewed as written, not reformatted. Prettier on the
+# existing documentation would produce a large diff with no information in it.
+*.md
+docs/
+corpus/
+alem-reporting-templates/
+radiology-pwa/
+qa-output/
+
+# Generated or vendored
+dist/
+coverage/
+node_modules/
+.turbo/
+pnpm-lock.yaml
