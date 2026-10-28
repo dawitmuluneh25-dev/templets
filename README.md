@@ -25,6 +25,7 @@ the documentation set that carries the project from prototype to production.
 │   ├── validation/                Severity vocabulary and findings
 │   └── contracts/                 Wire contract: resources, problem details, versioning
 ├── apps/                          web · api · worker — created as each has something to assert
+├── db/                            PostgreSQL 16 schema, migrations, tenant-isolation test
 ├── alem-reporting-templates/      Source corpus (do not edit — provenance for data/templates.json)
 │   ├── AlemHealth/                290 exported templates
 │   ├── Publicly Shared/           137 exported templates
