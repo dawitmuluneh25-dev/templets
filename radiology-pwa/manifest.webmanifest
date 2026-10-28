@@ -1,0 +1,26 @@
+{
+  "name": "AlemHealth Reporting",
+  "short_name": "Reporting",
+  "description": "Offline-first radiology report editor built on the imported AlemHealth template library.",
+  "start_url": "./?source=pwa",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "browser"],
+  "background_color": "#0e1116",
+  "theme_color": "#0e1116",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["medical", "productivity"],
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    { "name": "Template library", "url": "./#/library" },
+    { "name": "My drafts", "url": "./#/drafts" }
+  ]
+}
