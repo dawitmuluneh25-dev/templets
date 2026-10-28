@@ -3,10 +3,14 @@
 The sign-off artefact for leaving discovery. Everything here is either ratified with a date,
 open with a named owner, or explicitly deferred with the phase that will decide it.
 
-**Status:** 2 of 9 P1 entry conditions met, 2 partial. The three that gate the first commit:
-toolchain (E6), branch protection (E7), ADR-0006 (E2).
+**Status:** 3 of 9 P1 entry conditions met, 2 partial. The two that still gate committed code:
+the toolchain (E6 — PostgreSQL and Docker are still absent) and branch protection (E7 — the
+repository is local-only, so the CI committed on 2026-10-29 has never actually run).
 
 **Baseline:** `main @ 58ae638` — 463 files, prototype 427/427 round-trip, working tree clean.
+
+**Workspace:** `feat/p1-foundation` — 507 tracked files, `pnpm verify` green (lint · format ·
+typecheck · 14 tests · build), ADR-0006 accepted.
 
 ---
 
@@ -29,13 +33,13 @@ they were decided before any code.
 
 | # | Condition | State | Note |
 |---|---|---|---|
-| E1 | Repository with clean baseline and `.gitignore` | **Met** | 463 tracked files, no untracked or ignored artefacts |
-| E2 | Stack decisions recorded | **Partial** | ADR-0001…0005 accepted; ADR-0006 (stack baseline) not written |
+| E1 | Repository with clean baseline and `.gitignore` | **Met** | 507 tracked files, no untracked or ignored artefacts |
+| E2 | Stack decisions recorded | **Met** | ADR-0001…0006 accepted; 0006 ratifies plan §4 and records the pinning rules |
 | E3 | Corpus reproducible from source with a passing round-trip | **Met** | 427/427, 0 quarantined, 2,381 typed fields across 258 templates |
 | E4 | Licence review **started** with an owner and a date | **Not met** | Blocks customer shipment, not building. See §4 |
 | E5 | Deployment vendor shortlist + BAA path | **Not met** | Needed by P4, but the choice constrains P1 infrastructure scaffolding |
-| E6 | Toolchain available on the build machine | **Partial** | Node 22.23.2 and npm 10.9.8 present; **pnpm, Docker and PostgreSQL absent** |
-| E7 | Branch protection on `main` + PR template | **Not met** | Requires a remote; repository is currently local-only |
+| E6 | Toolchain available on the build machine | **Partial** | Node 22.23.2, pnpm 12.16.1 via corepack; **Docker and PostgreSQL absent** |
+| E7 | Branch protection on `main` + PR template | **Partial** | PR template, commitlint and the CI workflow are committed; branch protection needs a remote, and CI has never run |
 | E8 | One named clinical champion with protected time | **Not met** | Needed by P3, worth naming now |
 | E9 | IdP capability confirmed (role groups + step-up) | **Not met** | Needed by P3 |
 
