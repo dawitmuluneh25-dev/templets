@@ -1,0 +1,26 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.md]
+# Markdown uses two trailing spaces as a hard line break.
+trim_trailing_whitespace = false
+
+[*.{yml,yaml}]
+indent_size = 2
+
+[*.ps1]
+# PowerShell here is a build convenience, not a shipped artefact; Windows
+# tooling still expects CRLF for signed/executed scripts.
+end_of_line = crlf
+
+# The corpus is specified byte-for-byte elsewhere; never let an editor rewrite it.
+[alem-reporting-templates/**]
+insert_final_newline = false
+trim_trailing_whitespace = false

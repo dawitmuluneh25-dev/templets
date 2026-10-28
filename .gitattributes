@@ -1,0 +1,30 @@
+# Line endings and normalisation.
+#
+# Default: normalise text to LF in the repository and in the working tree.
+# This is a Windows build machine, and an accidental CRLF flip inside a corpus
+# file changes that file's byte count — the manifest records bytes, and the
+# round-trip check asserts bytes. So the corpus is excluded explicitly below.
+* text=auto eol=lf
+
+# Corpus payloads are the specification: hashed, counted, never converted.
+# No text conversion, no keyword expansion, no end-of-line games.
+alem-reporting-templates/** -text
+corpus/raw/** -text
+corpus/generated/** -text
+
+# Binary assets: never diff, never merge, never convert.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.pdf binary
+*.zip binary
+
+# Lockfiles are generated and reviewed by tooling; keep them out of language
+# statistics and merge conflicts.
+pnpm-lock.yaml -diff linguist-generated
