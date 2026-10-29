@@ -34,6 +34,14 @@ export async function runMigrations(connectionString: string): Promise<Migration
   await client.connect();
 
   try {
+    // Two processes can start at the same moment — two API replicas, a deploy and
+    // a test run, two CI jobs against one database. Without this they both apply
+    // the same file and one dies on a duplicate key in `schema_migration`, which
+    // looks like a broken migration rather than a scheduling accident.
+    await client.query(
+      "select pg_advisory_lock(hashtextextended('reporting.schema_migration', 0))",
+    );
+
     await client.query(`
       create table if not exists schema_migration (
         version     text primary key,
@@ -79,6 +87,11 @@ export async function runMigrations(connectionString: string): Promise<Migration
 
     return { applied: newlyApplied, alreadyApplied: applied.size };
   } finally {
+    // Released before the connection goes back, and swallowed if the connection is
+    // already gone: a failed unlock must not mask the migration error that caused it.
+    await client
+      .query("select pg_advisory_unlock(hashtextextended('reporting.schema_migration', 0))")
+      .catch(() => undefined);
     await client.end();
   }
 }

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -15,8 +17,17 @@ const ownerUrl = process.env.TEST_DATABASE_URL;
 const appUrl = process.env.TEST_APP_DATABASE_URL;
 const enabled = ownerUrl !== undefined && appUrl !== undefined;
 
-const ORG_A = '11111111-1111-4111-8111-111111111111';
-const ORG_B = '22222222-2222-4222-8222-222222222222';
+/**
+ * One pair of tenants per run, generated fresh.
+ *
+ * Fixed ids plus a `truncate` would make this suite incompatible with any other
+ * suite that touches the same test database — and a test that only passes alone is
+ * a test that fails in CI the day a second database suite is added. Fresh tenants
+ * mean leftover rows from other suites are invisible here, because RLS is exactly
+ * what is being tested.
+ */
+const ORG_A = randomUUID();
+const ORG_B = randomUUID();
 
 interface Seed {
   readonly reportId: string;
@@ -50,9 +61,15 @@ describe.skipIf(!enabled)('row-level security', () => {
     );
 
     const version = await owner.query<{ id: string }>(
-      `insert into template_version (template_id, version, body, token_stream, content_hash)
-       values ($1, 1, $2, $3, $4) returning id`,
-      [template.rows[0]?.id ?? '', 'FINDINGS:\nNormal.', JSON.stringify([]), `sha256:${label}`],
+      `insert into template_version (org_id, template_id, version, body, token_stream, content_hash)
+       values ($1, $2, 1, $3, $4, $5) returning id`,
+      [
+        orgId,
+        template.rows[0]?.id ?? '',
+        'FINDINGS:\nNormal.',
+        JSON.stringify([]),
+        `sha256:${label}`,
+      ],
     );
     const versionId = version.rows[0]?.id ?? '';
 
@@ -85,10 +102,6 @@ describe.skipIf(!enabled)('row-level security', () => {
 
     owner = new pg.Client({ connectionString: ownerUrl });
     await owner.connect();
-    await owner.query(`
-      truncate audit_event, signature, report_revision, report, study,
-        template_version, template, app_user, org restart identity cascade
-    `);
 
     a = await seed(ORG_A, 'A');
     b = await seed(ORG_B, 'B');
@@ -109,6 +122,28 @@ describe.skipIf(!enabled)('row-level security', () => {
     expect(own.rowCount).toBe(1);
     expect(own.rows[0]?.id).toBe(a.reportId);
     expect(own.rows[0]?.org_id).toBe(ORG_A);
+  });
+
+  it('scopes template version bodies to their tenant', async () => {
+    await asOrg(app, ORG_A);
+
+    const visible = await app.query<{ id: string }>('select id from template_version');
+    expect(visible.rows.map((row) => row.id)).toEqual([a.versionId]);
+
+    const crossed = await app.query('select id from template_version where id = $1', [b.versionId]);
+    expect(crossed.rowCount).toBe(0);
+  });
+
+  it('refuses a version whose organisation is not its template’s', async () => {
+    await asOrg(app, ORG_A);
+
+    await expect(
+      app.query(
+        `insert into template_version (org_id, template_id, version, body, token_stream, content_hash)
+         values ($1, (select template_id from template_version where id = $2), 2, 'x', '[]', 'sha256:y')`,
+        [ORG_B, a.versionId],
+      ),
+    ).rejects.toThrow(/row-level security|must match/i);
   });
 
   it('returns nothing for another tenant even when asked explicitly', async () => {

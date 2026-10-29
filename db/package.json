@@ -21,6 +21,7 @@
     "migrate": "node dist/cli.js"
   },
   "dependencies": {
+    "@reporting/tokens": "workspace:*",
     "pg": "^8.16.3"
   }
 }
