@@ -24,8 +24,9 @@ the documentation set that carries the project from prototype to production.
 │   ├── template-schema/           Manifest contract and provenance classification (ADR-0004)
 │   ├── validation/                Severity vocabulary and findings
 │   └── contracts/                 Wire contract: resources, problem details, versioning
-├── apps/                          api (vertical slice) · web · worker — each arrives with something to assert
-│   └── api/                       Fastify + Zod: create → autosave → sign, plus generated openapi.json
+├── apps/                          api · web live here; worker waits for its first job
+│   ├── api/                       Fastify + Zod: create → autosave → sign, plus generated openapi.json
+│   └── web/                       Next.js shell + template library (P2 step 1: read-only)
 ├── db/                            PostgreSQL 16 schema, migrations, tenant-isolation test
 ├── alem-reporting-templates/      Source corpus (do not edit — provenance for data/templates.json)
 │   ├── AlemHealth/                290 exported templates

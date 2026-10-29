@@ -9,13 +9,18 @@ this build: branch protection (E7) — the repository is local-only, so the CI c
 
 **Baseline:** `main @ 58ae638` — 463 files, prototype 427/427 round-trip, working tree clean.
 
-**Workspace:** `feat/p1-foundation` — `pnpm verify` green (lint · format · typecheck · 79 tests ·
+**Workspace:** `feat/p1-foundation` — `pnpm verify` green (lint · format · typecheck · 97 tests ·
 build). Corpus round-trip 427/427 with zero quarantined; tenant isolation proven against
 PostgreSQL 16.15; ADR-0006 and ADR-0007 accepted. The headless vertical slice runs end to end — create a report
 from a pinned template version, autosave a revision, sign — with the evidence invariants enforced by
 the database (migrations 0003–0004) rather than only by the service that wrote them. Approval is
 N-of-M with cross-cover, so `signed` means enough distinct people rather than a flag the service
 remembers.
+
+`apps/web` carries the first web slice: a server-rendered template library over the committed corpus
+artefact, faceted search and pagination that work without JavaScript, an installable shell, and a
+service worker whose cache allowlist excludes every document ([ADR-0008](adr/0008-service-worker-allowlist.md)).
+It is read-only — the editor island is P2, and signing still waits on E9.
 
 ---
 
