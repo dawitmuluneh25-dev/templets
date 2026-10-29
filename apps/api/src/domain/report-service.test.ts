@@ -509,6 +509,12 @@ describe.skipIf(!enabled)('report vertical slice', () => {
 
       expect(signed.state).toBe('signed');
 
+      // The client has to be able to say who was covered for; recording it only in
+      // the database would leave the approve screen unable to explain the signature.
+      expect(signed.signatures.map((signature) => signature.role)).toEqual(['author', 'delegate']);
+      expect(signed.signatures[0]?.on_behalf_of).toBeNull();
+      expect(signed.signatures[1]?.on_behalf_of).toBe(approver.userId);
+
       await withTenant(pool, { orgId: ORG }, async (tx) => {
         const row = await tx.query<{ role: string; on_behalf_of: string | null }>(
           'select role, on_behalf_of from signature where report_id = $1 and actor_id = $2',
@@ -569,6 +575,110 @@ describe.skipIf(!enabled)('report vertical slice', () => {
         await client.query('rollback').catch(() => undefined);
         client.release();
       }
+    });
+
+    /**
+     * The middle of a three-way approval is a state the worklist has to render, and
+     * it is the only branch of `signReport` that neither completes nor submits. A
+     * report sitting at two of three must be visibly waiting, not silently stuck.
+     */
+    it('records a countersignature that does not yet complete a three-way approval', async () => {
+      const report = await createReport(deps(), {
+        actor,
+        templateVersionId: versionId,
+        studyInstanceUid: `1.2.840.${randomUUID()}`,
+        modality: 'XR',
+        approvalsRequired: 3,
+      });
+
+      const submitted = await signReport(deps(), {
+        actor,
+        reportId: report.id,
+        ifMatch: report.current_hash,
+        stepUpAssertion: STEP_UP_TOKEN,
+      });
+
+      expect(submitted.state).toBe('submitted');
+      expect(submitted.signatures).toHaveLength(1);
+
+      const countersigned = await signReport(deps(), {
+        actor: approver,
+        reportId: report.id,
+        ifMatch: submitted.current_hash,
+        stepUpAssertion: STEP_UP_TOKEN,
+      });
+
+      expect(countersigned.state).toBe('submitted');
+      expect(countersigned.signed_at).toBeNull();
+      expect(countersigned.signatures.map((signature) => signature.role)).toEqual([
+        'author',
+        'approver',
+      ]);
+      expect(await auditActions(report.id)).toEqual([
+        'report.created',
+        'report.submitted',
+        'report.countersigned',
+      ]);
+
+      const signed = await signReport(deps(), {
+        actor: cover,
+        reportId: report.id,
+        ifMatch: countersigned.current_hash,
+        stepUpAssertion: STEP_UP_TOKEN,
+      });
+
+      expect(signed.state).toBe('signed');
+      expect(signed.signatures).toHaveLength(3);
+      expect(await auditActions(report.id)).toEqual([
+        'report.created',
+        'report.submitted',
+        'report.countersigned',
+        'report.signed',
+      ]);
+    });
+
+    /**
+     * A signature approves the words it was placed over. Once a returned report is
+     * edited the revision changes, and the earlier signatures become history rather
+     * than progress — otherwise the client shows a fresh revision as already signed.
+     */
+    it('does not carry signatures forward onto the revision that replaced them', async () => {
+      const report = await twoSignatureReport();
+
+      const submitted = await signReport(deps(), {
+        actor,
+        reportId: report.id,
+        ifMatch: report.currentHash,
+        stepUpAssertion: STEP_UP_TOKEN,
+      });
+
+      expect(submitted.signatures).toHaveLength(1);
+
+      // The attending sends it back; the author edits, which is a new revision.
+      await withTenant(pool, { orgId: ORG }, async (tx) => {
+        await tx.query("update report set state = 'returned' where id = $1", [report.id]);
+        await tx.query("update report set state = 'draft' where id = $1", [report.id]);
+      });
+
+      const revised = await saveDraft(deps(), {
+        actor,
+        reportId: report.id,
+        ifMatch: submitted.current_hash,
+        fieldValues: { [IMPRESSION_KEY]: 'No acute abnormality.' },
+      });
+
+      expect(revised.revision).toBe(2);
+      expect(revised.signatures).toEqual([]);
+
+      // The old signature is still evidence; it is simply not an approval of this text.
+      await withTenant(pool, { orgId: ORG }, async (tx) => {
+        const rows = await tx.query(
+          'select revision_id from signature where report_id = $1 and actor_id = $2',
+          [report.id, actor.userId],
+        );
+
+        expect(rows.rowCount).toBe(1);
+      });
     });
   });
 });

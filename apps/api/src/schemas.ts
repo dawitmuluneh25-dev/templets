@@ -59,6 +59,8 @@ export const reportResourceSchema = z.object({
       actor_id: z.uuid(),
       role: z.enum(['author', 'approver', 'delegate']),
       signed_at: z.string(),
+      /** Set only on a delegate signature: the person it covers for. */
+      on_behalf_of: z.uuid().nullable(),
     }),
   ),
   document: tokenDocumentSchema,

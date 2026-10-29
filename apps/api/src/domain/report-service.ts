@@ -525,8 +525,12 @@ async function loadResource(tx: Tx, reportId: string): Promise<ReportResource> {
   const report = row.rows[0];
   if (report === undefined) throw problems.reportNotFound(reportId);
 
-  const latest = await tx.query<{ revision: number; field_values: Record<string, string> }>(
-    `select revision, field_values
+  const latest = await tx.query<{
+    id: string;
+    revision: number;
+    field_values: Record<string, string>;
+  }>(
+    `select id, revision, field_values
        from report_revision
       where report_id = $1
       order by revision desc
@@ -536,12 +540,22 @@ async function loadResource(tx: Tx, reportId: string): Promise<ReportResource> {
 
   const revision = latest.rows[0];
 
-  const signatures = await tx.query<{ actor_id: string; role: SignatureRole; signed_at: Date }>(
-    `select actor_id, role, signed_at
+  // Scoped to the latest revision, because that is what the contract promises and
+  // what `approvals_required` counts against. A signature on revision 1 does not
+  // approve revision 2 — after a returned report is edited, the old signatures are
+  // history, not progress. Without the filter the client would show a fresh revision
+  // as already signed and offer no way to explain the contradiction.
+  const signatures = await tx.query<{
+    actor_id: string;
+    role: SignatureRole;
+    signed_at: Date;
+    on_behalf_of: string | null;
+  }>(
+    `select actor_id, role, signed_at, on_behalf_of
        from signature
-      where report_id = $1
+      where report_id = $1 and revision_id = $2
       order by signed_at`,
-    [reportId],
+    [reportId, revision?.id ?? null],
   );
 
   return {
@@ -558,6 +572,7 @@ async function loadResource(tx: Tx, reportId: string): Promise<ReportResource> {
       actor_id: row.actor_id,
       role: row.role,
       signed_at: row.signed_at.toISOString(),
+      on_behalf_of: row.on_behalf_of,
     })),
   };
 }

@@ -34,6 +34,14 @@ export interface SignatureSummary {
   readonly actor_id: string;
   readonly role: SignatureRole;
   readonly signed_at: string;
+  /**
+   * The person a `delegate` signature covers for; null for every other role.
+   *
+   * Present on the wire because recording cover in the database and hiding it from
+   * the client would leave the approve screen unable to say who actually approved
+   * the report — which is the whole reason the delegate role exists.
+   */
+  readonly on_behalf_of: string | null;
 }
 
 export interface ReportResource {
