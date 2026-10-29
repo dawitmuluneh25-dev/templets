@@ -26,9 +26,18 @@ export interface ReportResource {
   readonly state: ReportState;
   /** Pinned at creation: a report never follows a template version it was not authored on. */
   readonly template_version_id: string;
+  /** Latest revision number, 1-based. Revisions are append-only, so this only grows. */
+  readonly revision: number;
   readonly document: TokenDocument;
-  /** Hash of the canonical form; also the `If-Match` value for mutation. */
+  /** Value per field key. A key absent here renders as its placeholder. */
+  readonly field_values: Readonly<Record<string, string>>;
+  /**
+   * Hash of the stored tree plus its field values (ADR-0005) — *not* of the
+   * rendering. It is the optimistic-concurrency token (`If-Match`) and the value
+   * a signature attests, so it changes on every save and on nothing else.
+   */
   readonly current_hash: string;
+  readonly signed_at: string | null;
 }
 
 /**

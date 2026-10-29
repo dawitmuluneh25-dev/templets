@@ -30,12 +30,16 @@ export default defineConfig({
     alias: {
       '@reporting/tokens': fromRoot('./packages/tokens/src/index.ts'),
       '@reporting/template-schema': fromRoot('./packages/template-schema/src/index.ts'),
+      '@reporting/contracts': fromRoot('./packages/contracts/src/index.ts'),
       '@reporting/validation': fromRoot('./packages/validation/src/index.ts'),
       '@reporting/db': fromRoot('./db/src/index.ts'),
     },
   },
   test: {
-    include: ['packages/*/src/**/*.test.ts', 'db/src/**/*.test.ts'],
+    // Database suites create their own tenants per run instead of truncating a
+    // shared database, so files stay parallel-safe. A suite that only passes alone
+    // is a suite that fails the day a second database suite is added.
+    include: ['packages/*/src/**/*.test.ts', 'db/src/**/*.test.ts', 'apps/*/src/**/*.test.ts'],
     environment: 'node',
     env: readLocalEnv(),
   },

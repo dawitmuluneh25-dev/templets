@@ -19,11 +19,14 @@ describe('wire contract', () => {
       id: '8f14e45f-ea4a-4c1f-9d0e-3b1f2a6c9d10',
       state: 'draft',
       template_version_id: 'a1b2c3d4-0000-4000-8000-000000000000',
+      revision: 1,
       current_hash: 'sha256:0f3c…',
       document: {
         schema_version: TOKEN_SCHEMA_VERSION,
         tokens: [{ kind: 'text', value: 'XR Chest' }],
       },
+      field_values: {},
+      signed_at: null,
     };
 
     expect(report.document.tokens).toHaveLength(1);
