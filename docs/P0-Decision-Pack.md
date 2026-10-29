@@ -9,9 +9,11 @@ this build: branch protection (E7) — the repository is local-only, so the CI c
 
 **Baseline:** `main @ 58ae638` — 463 files, prototype 427/427 round-trip, working tree clean.
 
-**Workspace:** `feat/p1-foundation` — `pnpm verify` green (lint · format · typecheck · 40 tests ·
+**Workspace:** `feat/p1-foundation` — `pnpm verify` green (lint · format · typecheck · 67 tests ·
 build). Corpus round-trip 427/427 with zero quarantined; tenant isolation proven against
-PostgreSQL 16.15; ADR-0006 accepted.
+PostgreSQL 16.15; ADR-0006 accepted. The headless vertical slice runs end to end — create a report
+from a pinned template version, autosave a revision, sign — with the evidence invariants enforced by
+the database (migration 0003) rather than only by the service that wrote them.
 
 ---
 
@@ -57,7 +59,7 @@ migration that has never run is worse than no migration.
 |---|---|---|---|
 | D1 | Deployment vendor per customer | Customer IT + us | P0 — **profile settled (R2), vendor open** |
 | D2 | Solo-sign policy: attending-only vs configurable per service | Clinical governance | P3 |
-| D3 | Multi-attending approval: single co-sign vs N-of-M | Clinical governance | P3 |
+| D3 | Multi-attending approval: single co-sign vs N-of-M | Clinical governance | P3 — **the slice is solo-sign only; signature.role already distinguishes author from approver** |
 | D4 | Addendum vs corrected-report semantics downstream | EHR integration owner | P4 |
 | D5 | DICOM SR in v1 or v1.1 | Product + customer | P4 |
 | D6 | ASR engine: BAA vendor vs self-hosted | Security + finance | P4 |
