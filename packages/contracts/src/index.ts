@@ -21,6 +21,21 @@ export type ApiVersion = typeof API_VERSION;
  */
 export type ReportState = 'draft' | 'submitted' | 'signed' | 'amended' | 'returned';
 
+/**
+ * One signature, as a client needs to see it.
+ *
+ * `role` is not decoration: `author` is the reporter signing their own work,
+ * `approver` is a second attending, `delegate` is cross-cover for someone absent.
+ * All three count toward `approvals_required`; only the author may be the author.
+ */
+export type SignatureRole = 'author' | 'approver' | 'delegate';
+
+export interface SignatureSummary {
+  readonly actor_id: string;
+  readonly role: SignatureRole;
+  readonly signed_at: string;
+}
+
 export interface ReportResource {
   readonly id: string;
   readonly state: ReportState;
@@ -28,6 +43,10 @@ export interface ReportResource {
   readonly template_version_id: string;
   /** Latest revision number, 1-based. Revisions are append-only, so this only grows. */
   readonly revision: number;
+  /** Signatures needed to complete the report (D3). 1 is solo sign. */
+  readonly approvals_required: number;
+  /** Signatures collected on the current revision, oldest first. */
+  readonly signatures: readonly SignatureSummary[];
   readonly document: TokenDocument;
   /** Value per field key. A key absent here renders as its placeholder. */
   readonly field_values: Readonly<Record<string, string>>;

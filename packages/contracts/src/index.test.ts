@@ -20,6 +20,8 @@ describe('wire contract', () => {
       state: 'draft',
       template_version_id: 'a1b2c3d4-0000-4000-8000-000000000000',
       revision: 1,
+      approvals_required: 1,
+      signatures: [],
       current_hash: 'sha256:0f3c…',
       document: {
         schema_version: TOKEN_SCHEMA_VERSION,
