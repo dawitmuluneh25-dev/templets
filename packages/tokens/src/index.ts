@@ -21,4 +21,5 @@ export {
 export { parse } from './parse.js';
 export { render, serialize, type RenderOptions } from './serialize.js';
 export { hash } from './hash.js';
+export { canonicalJson, contentHash } from './canonical.js';
 export { migrate } from './migrate.js';
