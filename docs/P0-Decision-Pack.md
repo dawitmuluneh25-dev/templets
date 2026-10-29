@@ -9,11 +9,13 @@ this build: branch protection (E7) — the repository is local-only, so the CI c
 
 **Baseline:** `main @ 58ae638` — 463 files, prototype 427/427 round-trip, working tree clean.
 
-**Workspace:** `feat/p1-foundation` — `pnpm verify` green (lint · format · typecheck · 67 tests ·
+**Workspace:** `feat/p1-foundation` — `pnpm verify` green (lint · format · typecheck · 75 tests ·
 build). Corpus round-trip 427/427 with zero quarantined; tenant isolation proven against
-PostgreSQL 16.15; ADR-0006 accepted. The headless vertical slice runs end to end — create a report
+PostgreSQL 16.15; ADR-0006 and ADR-0007 accepted. The headless vertical slice runs end to end — create a report
 from a pinned template version, autosave a revision, sign — with the evidence invariants enforced by
-the database (migration 0003) rather than only by the service that wrote them.
+the database (migrations 0003–0004) rather than only by the service that wrote them. Approval is
+N-of-M with cross-cover, so `signed` means enough distinct people rather than a flag the service
+remembers.
 
 ---
 
@@ -53,13 +55,13 @@ migration that has never run is worse than no migration.
 
 ---
 
-## 3. Open — carried from the plan, unchanged
+## 3. Carried from the plan — D3 decided, the rest open
 
 | ID | Decision | Decider | Needed by |
 |---|---|---|---|
 | D1 | Deployment vendor per customer | Customer IT + us | P0 — **profile settled (R2), vendor open** |
 | D2 | Solo-sign policy: attending-only vs configurable per service | Clinical governance | P3 |
-| D3 | Multi-attending approval: single co-sign vs N-of-M | Clinical governance | P3 — **the slice is solo-sign only; signature.role already distinguishes author from approver** |
+| D3 | Multi-attending approval: single co-sign vs N-of-M | Clinical governance | **Decided 2026-10-29** — N-of-M with cross-cover, [ADR-0007](adr/0007-multi-signature-approval.md); shipped in migration 0004. Clinical sign-off in §6 is still blank |
 | D4 | Addendum vs corrected-report semantics downstream | EHR integration owner | P4 |
 | D5 | DICOM SR in v1 or v1.1 | Product + customer | P4 |
 | D6 | ASR engine: BAA vendor vs self-hosted | Security + finance | P4 |
@@ -70,8 +72,12 @@ migration that has never run is worse than no migration.
 | D11 | Template authoring in-app: v1 vs v1.1 | Product | P9 |
 | D12 | Bulk co-sign: allowed with warnings vs disallowed | Clinical governance | P3 |
 
-D3 is the one that can invalidate architecture rather than scope: if authority is N-of-M with
-cross-cover rules, the state machine changes, not a query. Confirm before P3 starts.
+D3 was the one that could invalidate architecture rather than scope, and it did: authority is N-of-M
+with cross-cover, so the state machine changed. It is closed by [ADR-0007](adr/0007-multi-signature-approval.md)
+— `submitted` is now a real state, `signed` is a count, and uniqueness is per person per revision.
+What that costs is in the ADR's Consequences section, and two of those costs are still unpaid here:
+`approvals_required` is currently **chosen by the caller at create**, and delegation has no expiry.
+Neither should reach P3 unchanged.
 
 ---
 
@@ -95,11 +101,17 @@ because moving template authoring forward is a quarter, not a sprint.
 Three signals that the plan is wrong rather than late (production plan §18.5):
 
 1. The EHR cannot supply patient context at launch → integration becomes a manual workflow.
-2. Co-sign authority is N-of-M with cross-cover rules → the state machine changes.
+2. Co-sign authority is N-of-M with cross-cover rules → the state machine changes. **Fired
+   2026-10-29**, decided in ADR-0007.
 3. Dictation accuracy in the customer's own vocabulary is unusable → the requirement is a
    transcription service, not a feature.
 
 Any of these invalidates a phase boundary, not just a task. Re-plan rather than absorb.
+
+Signal 2 fired and was absorbed rather than re-planned: the change landed inside the P1 slice, on the
+argument that the affected edge is one guard and one constraint. That exception is recorded here
+instead of being left implicit, because the next reader should be able to see that the signal was
+noticed, not that the plan quietly disagreed with itself. Signals 1 and 3 are still live checks.
 
 ---
 

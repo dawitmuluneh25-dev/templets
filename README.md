@@ -38,6 +38,7 @@ the documentation set that carries the project from prototype to production.
     ├── Radiology-Report-PWA-Design.md            Requirements, data model, architecture, risks
     ├── Radiology-PWA-Architecture-and-Stack-Plan.md   Greenfield approach and stack rationale
     ├── Radiology-Reporting-PWA-Production-Plan.md     Production plan: integration, co-sign, dictation
+    ├── adr/                                     One file per decision that is expensive to reverse
     ├── history/                                 Superseded implementations, kept for provenance
     └── qa/                                      QA findings from the prototype build (reports only)
 ```

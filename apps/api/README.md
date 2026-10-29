@@ -10,7 +10,7 @@ so far — tenancy, the token model, immutability, the audit trail — and nothi
 ## Run it
 
 ```powershell
-pnpm db:migrate                 # 0001 … 0003
+pnpm db:migrate                 # 0001 … 0004
 pnpm --filter @reporting/api build
 pnpm --filter @reporting/api start
 ```
@@ -29,7 +29,13 @@ unless identity is configured. That is deliberate — see *What is absent* below
 | `POST` | `/v1/reports` | — | `report`, `report_revision` 1, `report.created` |
 | `GET` | `/v1/reports/:id` | — | nothing |
 | `PUT` | `/v1/reports/:id/draft` | required | next `report_revision`, `report.current_hash`, `report.draft_saved` |
-| `POST` | `/v1/reports/:id/sign` | required | `signature`, `report.state='signed'`, `report.signed` |
+| `POST` | `/v1/reports/:id/sign` | required | `signature`; `report.state='submitted'` with `report.submitted`/`report.countersigned`, or `'signed'` with `report.signed` when the count is reached |
+
+`POST /v1/reports` takes `approvals_required` (1–5, default 1). `POST …/sign` takes `on_behalf_of`,
+which is only meaningful for someone who is not the author and makes the signature a `delegate`
+covering for that user. A report needing N signatures is signed by N distinct people: the author's
+own signature moves it `draft → submitted`, and the signature that reaches N moves it `submitted →
+signed`. `report_not_submitted` (409) is what an approver gets if they try to sign before the author.
 
 Errors are RFC 9457 problem details. Branch on `code`; `title` and `detail` are for humans and may be
 reworded. `detail` never echoes a field value — a validation failure names the JSON path and the rule
@@ -44,7 +50,9 @@ diffed in CI. It cannot describe an endpoint that does not exist, or miss one th
 |---|---|---|
 | A report only ever sees its own tenant | tenant set per transaction | `FORCE ROW LEVEL SECURITY` + policy |
 | A signature attests a real revision | signs `report.current_hash` after comparing it to the latest revision | `signature_attests_revision` |
-| A signed report has evidence | writes both rows in one transaction | `report_signed_requires_evidence` (deferred) |
+| A signed report has evidence | writes both rows in one transaction | `report_signed_requires_evidence` (deferred) — since 0004 it also demands the signature *count* reach `approvals_required`, with at least one non-author among them |
+| One signature per person per revision | refuses a duplicate signer before writing | `signature_one_per_person_per_revision` |
+| A signature says only what it may | resolves `author`/`approver`/`delegate` from who is signing | `signature_role_is_honest` — only the author signs as `author`, nobody countersigns their own report, a delegate names whom it covers |
 | No lost update on autosave | `If-Match` compared to `current_hash` | `report_hash_tracks_revision` (deferred) |
 | The trail cannot be edited | appends only | append-only trigger + no UPDATE grant + chain check |
 | Only ratified state changes | checks state before writing | `report_state_transition` |
@@ -55,10 +63,16 @@ still true after somebody refactors the service. The contract test writes the fo
 
 ## What is absent, and why
 
-- **D3 — single co-sign vs N-of-M with cross-cover.** The state machine has `draft → submitted →
-  signed` and the `signature.role` column already distinguishes `author` from `approver`, so the
-  decision lands as a guard on one edge, not a rewrite. Nothing N-of-M-shaped is implemented, because
-  guessing would produce a workflow the clinical governance group has not agreed to.
+- **Approval policy.** `approvals_required` is taken from the caller on create (1–5). Nothing derives
+  it from the service, the template or the study's urgency — ADR-0007's own revisit trigger — and
+  nothing stops an author who needs three signatures from asking for one. Until that resolver exists
+  the number is a client decision, and it is the one thing in this slice that is a governance
+  affordance rather than an enforcement.
+- **Delegation with an expiry.** `on_behalf_of` records who a delegate covered for. It does not record
+  who granted the cover or when it lapses, so cross-cover is an assertion by the signer. A
+  `delegation` table is the honest next step and ADR-0007 says so.
+- **Sequential approval.** N-of-M is parallel by construction. Author → attending → department head
+  needs per-report stage state and an escalation owner, and is deliberately not approximated.
 - **Identity (E9) and step-up.** `Authenticator` and `StepUpVerifier` are interfaces with a
   fail-closed default. The only implementations that accept anything are named `HeaderAuthenticator`
   and `TestOnlyFixedTokenStepUp`, and `main.ts` cannot wire the second. A stub password check would
