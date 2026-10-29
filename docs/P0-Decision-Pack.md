@@ -88,18 +88,22 @@ ADR-0007 already anticipates, and should land before P3.
 
 ---
 
-## 4. Open — surfaced by the ADR work (new)
+## 4. Licensing — decided, not open
 
-| # | Item | Why it matters | Owner |
-|---|---|---|---|
-| N1 | **168 of 427 templates have no author metadata.** Provenance must come from platform account records, not the export | Cannot classify them as `cleared` without evidence; they default to restricted, which is 39% of the corpus | Product + legal |
-| N2 | **123 third-party-authored templates sit in the organisation's own scope** | Highest-risk class: the scope label asserts ownership the metadata contradicts | Legal |
-| N3 | Third-party count is 128 opaque ids, not the 127 stated in plan §7.6 | A legal review should not be quoted a number that does not reconcile | Product |
-| N4 | Licence clearing needed by **P1 exit**, per §18.3 | It is the only dependency that can make the whole corpus unusable after the build is finished | Legal |
+[ADR-0009](adr/0009-templates-are-user-property.md) answers what these items were asking. The
+corpus templates are the customer's property, exported from their own platform by their own users.
+Provenance is recorded for the trail; **nothing refuses a template, a report or a rollout on it.**
 
-If N1 and N2 resolve badly, the mitigation is org-authored replacement templates — currently
-P9 scope. **That is a schedule risk, not a technical one**, and it should be priced before P4,
-because moving template authoring forward is a quarter, not a sprint.
+| # | Item | Status |
+|---|---|---|
+| N1 | 168 of 427 templates have no author metadata | Recorded as `unknown` in `corpus/provenance.json`. No longer a gate |
+| N2 | 130 third-party-authored templates sit in the organisation's own scope | Recorded as `third_party`. Also no longer a gate; the scope label is still worth reviewing before any redistribution |
+| N3 | The third-party count does not reconcile (127 in plan §7.6, 128 in this pack, 130 from the importer) | **Still open, and still worth fixing.** A provenance artefact that disagrees with itself is the one thing here a reviewer will notice |
+| N4 | Licence clearing needed by P1 exit | **Closed.** Redistribution to a different organisation would reopen it; that is out of scope for v1 |
+
+The replacement-template mitigation stays on the shelf, unwritten, because nothing requires it. If
+N3 turns up a template that must not be used, the response is `template.status = 'deprecated'` —
+reports already signed keep their pinned version.
 
 ---
 

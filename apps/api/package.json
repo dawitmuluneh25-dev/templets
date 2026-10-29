@@ -18,7 +18,8 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "openapi": "node dist/cli.js openapi",
-    "start": "node --env-file-if-exists=../../.env.local dist/main.js"
+    "start": "node --env-file-if-exists=../../.env.local dist/main.js",
+    "import-templates": "node --env-file-if-exists=../../.env.local dist/cli.js import-templates"
   },
   "dependencies": {
     "@reporting/contracts": "workspace:*",

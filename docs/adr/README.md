@@ -15,6 +15,8 @@ gets stored, where the tenancy line sits.
 | [0005](0005-token-model-serialisation-boundary.md) | One serialisation boundary, versioned from the first row | Accepted | 2026-10-29 |
 | [0006](0006-stack-baseline.md) | Stack baseline ratified, pinned; rejections are decisions | Accepted | 2026-10-29 |
 | [0007](0007-multi-signature-approval.md) | N-of-M approval with cross-cover; one signature per person per revision | Accepted (clinical sign-off pending) | 2026-10-29 |
+| [0008](0008-service-worker-allowlist.md) | The service worker is an allowlist, not a precache | Proposed | 2026-10-29 |
+| [0009](0009-templates-are-user-property.md) | The corpus templates are the customer's property; provenance is recorded, not enforced | Accepted | 2026-10-29 |
 | [0008](0008-service-worker-allowlist.md) | Service worker caches static assets and `/offline` only — no documents | Proposed (owner signature pending) | 2026-10-29 |
 
 ## Format
