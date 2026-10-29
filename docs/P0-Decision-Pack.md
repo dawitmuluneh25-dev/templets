@@ -9,7 +9,7 @@ this build: branch protection (E7) — the repository is local-only, so the CI c
 
 **Baseline:** `main @ 58ae638` — 463 files, prototype 427/427 round-trip, working tree clean.
 
-**Workspace:** `feat/p1-foundation` — `pnpm verify` green (lint · format · typecheck · 97 tests ·
+**Workspace:** `feat/p1-foundation` — `pnpm verify` green (lint · format · typecheck · 108 tests ·
 build). Corpus round-trip 427/427 with zero quarantined; tenant isolation proven against
 PostgreSQL 16.15; ADR-0006 and ADR-0007 accepted. The headless vertical slice runs end to end — create a report
 from a pinned template version, autosave a revision, sign — with the evidence invariants enforced by
@@ -80,10 +80,11 @@ migration that has never run is worse than no migration.
 D3 was the one that could invalidate architecture rather than scope, and it did: authority is N-of-M
 with cross-cover, so the state machine changed. It is closed by [ADR-0007](adr/0007-multi-signature-approval.md)
 — `submitted` is now a real state, `signed` is a count, and uniqueness is per person per revision.
-What that costs is in the ADR's Consequences section, and two of those costs are still unpaid here:
-the approval requirement is set by a named role rather than derived from policy, and delegation has no
-expiry. Neither should reach P3 unchanged — the first needs the resolver ADR-0007 already anticipates,
-the second needs a `delegation` table.
+What that costs is in the ADR's Consequences section. One of those costs has been paid: cross-cover is
+now a `delegation` row with a window, and a delegate signature cites it (migration 0005), so "who said
+you could sign for them" is answerable. What remains is the approval *policy* — the requirement is set
+by a named role rather than derived from service, template and urgency — which is the resolver
+ADR-0007 already anticipates, and should land before P3.
 
 ---
 

@@ -30,12 +30,17 @@ unless identity is configured. That is deliberate — see *What is absent* below
 | `GET` | `/v1/reports/:id` | — | nothing |
 | `PUT` | `/v1/reports/:id/draft` | required | next `report_revision`, `report.current_hash`, `report.draft_saved` |
 | `POST` | `/v1/reports/:id/sign` | required | `signature`; `report.state='submitted'` with `report.submitted`/`report.countersigned`, or `'signed'` with `report.signed` when the count is reached |
+| `POST` | `/v1/delegations` | — | `delegation`, `delegation.granted` |
 
 `POST /v1/reports` takes `approvals_required` (1–5, default 1). **Anything above 1 requires the
 `clinical_lead` role** — otherwise `403 forbidden`. The requirement is a governance decision, and
 setting it is the only place in this slice where that decision is made. `POST …/sign` takes
 `on_behalf_of`, which is only meaningful for someone who is not the author and makes the signature a
-`delegate` covering for that user. A report needing N signatures is signed by N distinct people: the
+`delegate` covering for that user — **and only if a grant from that user to the signer is in force**,
+otherwise `409 no_active_delegation`. `POST /v1/delegations` creates that grant: you may lend your own
+authority to one person until a date, or a `clinical_lead` may lend someone else's. Grants are capped
+at 90 days, and a delegate signature cites the grant it was written under, so "who said you could sign
+for them" is a row rather than a claim in a request body. A report needing N signatures is signed by N distinct people: the
 author's own signature moves it `draft → submitted`, and the signature that reaches N moves it
 `submitted → signed`. `report_not_submitted` (409) is what an approver gets if they try to sign
 before the author.
@@ -81,6 +86,9 @@ diffed in CI. It cannot describe an endpoint that does not exist, or miss one th
 | One signature per person per revision | refuses a duplicate signer before writing | `signature_one_per_person_per_revision` |
 | An author cannot lower their own bar | refuses `approvals_required > 1` without `clinical_lead` | `check (approvals_required between 1 and 5)` — the range, not the authority |
 | A signature says only what it may | resolves `author`/`approver`/`delegate` from who is signing | `signature_role_is_honest` — only the author signs as `author`, nobody countersigns their own report, a delegate names whom it covers |
+| Cross-cover is authority, not a claim | resolves a live grant before writing, else `409 no_active_delegation` | `signature_role_is_honest` — the cited grant must be this signer's, for the person named, and span `signed_at` |
+| Only the person lending, or a clinical lead, may lend | refuses anyone else before writing | `delegation_is_authorised` |
+| A grant ends | caps it at 90 days, refuses a past `expires_at` | `delegation_expires_after_it_starts`; the window is the only way it stops being valid |
 | No lost update on autosave | `If-Match` compared to `current_hash` | `report_hash_tracks_revision` (deferred) |
 | The trail cannot be edited | appends only | append-only trigger + no UPDATE grant + chain check |
 | Only ratified state changes | checks state before writing | `report_state_transition` |
@@ -98,9 +106,13 @@ still true after somebody refactors the service. The contract test writes the fo
   asks for 1 and self-completes" hole without inventing a policy model, but the role name itself is a
   placeholder — it is what E9's IdP role groups will populate, and the resolver will remove the need
   for it.
-- **Delegation with an expiry.** `on_behalf_of` records who a delegate covered for. It does not record
-  who granted the cover or when it lapses, so cross-cover is an assertion by the signer. A
-  `delegation` table is the honest next step and ADR-0007 says so.
+- **Revoking a grant early.** A delegation is append-only and its window is the only way it stops
+  being valid; there is no `ended_at` and no delete. Correcting a mistaken grant means waiting it out
+  or issuing one that is narrower, which is acceptable while grants are days long and not acceptable
+  once they are not. Early revocation is a new column and a second row, when a customer asks.
+- **Discovering cover.** A delegate can sign for someone and cannot list whom they cover for. The
+  server resolves the grant at signing, so correctness does not depend on the client knowing — but an
+  approver UI will want to show it.
 - **Sequential approval.** N-of-M is parallel by construction. Author → attending → department head
   needs per-report stage state and an escalation owner, and is deliberately not approximated.
 - **Identity (E9) and step-up.** `Authenticator` and `StepUpVerifier` are interfaces with a

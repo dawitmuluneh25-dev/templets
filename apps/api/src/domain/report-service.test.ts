@@ -8,13 +8,9 @@ import { contentHash, parse, type TokenDocument } from '@reporting/tokens';
 
 import { TestOnlyFixedTokenStepUp, type Actor } from '../auth.js';
 import { ApiError } from '../errors.js';
-import {
-  APPROVAL_AUTHORITY_ROLE,
-  createReport,
-  getReport,
-  saveDraft,
-  signReport,
-} from './report-service.js';
+import { APPROVAL_AUTHORITY_ROLE } from '../roles.js';
+import { createDelegation } from './delegation-service.js';
+import { createReport, getReport, saveDraft, signReport } from './report-service.js';
 
 /**
  * The vertical slice, against a real PostgreSQL through the *runtime* role.
@@ -501,8 +497,26 @@ describe.skipIf(!enabled)('report vertical slice', () => {
       ).rejects.toMatchObject({ code: 'already_signed' });
     });
 
+    /**
+     * Cover is authority, not a name in a request body (0005), so every cross-cover test
+     * needs a grant first. Two hours is deliberate: long enough to survive the test, short
+     * enough that "expired" is a date this file can construct rather than wait for.
+     */
+    async function coverFor(from: typeof approver, hours = 2): Promise<{ id: string }> {
+      const granted = await createDelegation(deps(), {
+        actor,
+        fromUserId: from.userId,
+        toUserId: cover.userId,
+        expiresAt: new Date(Date.now() + hours * 3_600_000).toISOString(),
+      });
+
+      return { id: granted.id };
+    }
+
     it('counts a cross-cover signature and records who it covers for', async () => {
       const report = await twoSignatureReport();
+      const delegation = await coverFor(approver);
+
       const submitted = await signReport(deps(), {
         actor,
         reportId: report.id,
@@ -527,13 +541,139 @@ describe.skipIf(!enabled)('report vertical slice', () => {
       expect(signed.signatures[1]?.on_behalf_of).toBe(approver.userId);
 
       await withTenant(pool, { orgId: ORG }, async (tx) => {
-        const row = await tx.query<{ role: string; on_behalf_of: string | null }>(
-          'select role, on_behalf_of from signature where report_id = $1 and actor_id = $2',
+        const row = await tx.query<{
+          role: string;
+          on_behalf_of: string | null;
+          delegation_id: string | null;
+        }>(
+          `select role, on_behalf_of, delegation_id
+             from signature where report_id = $1 and actor_id = $2`,
           [report.id, cover.userId],
         );
 
         expect(row.rows[0]?.role).toBe('delegate');
         expect(row.rows[0]?.on_behalf_of).toBe(approver.userId);
+        // The signature says who it covers for and cites what entitled it. Both, because
+        // the claim and the authority are separate facts and the trail has to hold each.
+        expect(row.rows[0]?.delegation_id).toBe(delegation.id);
+      });
+    });
+
+    it('refuses cross-cover when no delegation is in force', async () => {
+      const report = await twoSignatureReport();
+      const submitted = await signReport(deps(), {
+        actor,
+        reportId: report.id,
+        ifMatch: report.currentHash,
+        stepUpAssertion: STEP_UP_TOKEN,
+      });
+
+      // Naming whom you cover for is not the same as being entitled to. Without a grant
+      // this is a signature asserting its own authority — the case the table exists for.
+      //
+      // The pair is reversed on purpose: an earlier test grants approver → cover, and a
+      // grant is evidence, so it cannot be deleted to make this test's premise true.
+      // Nothing has ever been granted cover → approver, which is what this asserts.
+      await expect(
+        signReport(deps(), {
+          actor: approver,
+          reportId: report.id,
+          ifMatch: submitted.current_hash,
+          stepUpAssertion: STEP_UP_TOKEN,
+          onBehalfOf: cover.userId,
+        }),
+      ).rejects.toMatchObject({ code: 'no_active_delegation' });
+    });
+
+    it('refuses cross-cover once the grant has expired', async () => {
+      const report = await twoSignatureReport();
+      const submitted = await signReport(deps(), {
+        actor,
+        reportId: report.id,
+        ifMatch: report.currentHash,
+        stepUpAssertion: STEP_UP_TOKEN,
+      });
+
+      // Granted, then made historical. The row stays — it is evidence that cover existed —
+      // but the clock is what makes it authority, and the clock has moved past it.
+      //
+      // Backdated on the owner connection on purpose: the application role has `select,
+      // insert` only, so a running service cannot move a grant's window. Production code
+      // has no way to do what this test does, which is the property being relied on.
+      await coverFor(approver);
+
+      await owner.query('begin');
+      await owner.query("select set_config('app.org_id', $1, true)", [ORG]);
+      // Every grant for this pair, not just this one: an earlier test left a live grant
+      // between the same two people, and `findLiveDelegation` would rightly find it. The
+      // premise here is "no cover from this person is in force", so the fixture has to
+      // make that true rather than expire one row and hope.
+      const backdated = await owner.query(
+        `update delegation
+            set starts_at  = now() - interval '3 days',
+                expires_at = now() - interval '1 day'
+          where org_id = $1 and from_user_id = $2 and to_user_id = $3`,
+        [ORG, approver.userId, cover.userId],
+      );
+      await owner.query('commit');
+
+      // A fixture that silently did nothing would make this test pass for the wrong
+      // reason: the signing refusal below has to be caused by the clock, not by an
+      // `update` that matched no rows under row-level security.
+      expect(backdated.rowCount).toBeGreaterThanOrEqual(1);
+
+      await expect(
+        signReport(deps(), {
+          actor: cover,
+          reportId: report.id,
+          ifMatch: submitted.current_hash,
+          stepUpAssertion: STEP_UP_TOKEN,
+          onBehalfOf: approver.userId,
+        }),
+      ).rejects.toMatchObject({ code: 'no_active_delegation' });
+    });
+
+    it('refuses a delegation granted by someone with no authority to lend it', async () => {
+      // `cover` holds no clinical_lead role, so they may lend their own authority but not
+      // approver's. Otherwise cover is one colleague vouching for another.
+      await expect(
+        createDelegation(deps(), {
+          actor: cover,
+          fromUserId: approver.userId,
+          toUserId: actor.userId,
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+        }),
+      ).rejects.toMatchObject({ code: 'forbidden' });
+    });
+
+    it('refuses an open-ended or already-dead grant', async () => {
+      await expect(
+        createDelegation(deps(), {
+          actor: approver,
+          toUserId: cover.userId,
+          expiresAt: new Date(Date.now() + 400 * 86_400_000).toISOString(),
+        }),
+      ).rejects.toMatchObject({ code: 'invalid_request' });
+
+      await expect(
+        createDelegation(deps(), {
+          actor: approver,
+          toUserId: cover.userId,
+          expiresAt: new Date(Date.now() - 60_000).toISOString(),
+        }),
+      ).rejects.toMatchObject({ code: 'invalid_request' });
+    });
+
+    it('records the grant in the audit trail', async () => {
+      const delegation = await coverFor(approver);
+
+      await withTenant(pool, { orgId: ORG }, async (tx) => {
+        const row = await tx.query<{ action: string; meta: { to_user_id?: string } }>(
+          "select action, meta from audit_event where subject_id = $1 and action = 'delegation.granted'",
+          [delegation.id],
+        );
+
+        expect(row.rows[0]?.meta.to_user_id).toBe(cover.userId);
       });
     });
 
@@ -561,6 +701,36 @@ describe.skipIf(!enabled)('report vertical slice', () => {
           );
         }),
       ).rejects.toThrow(/must name the person/i);
+    });
+
+    it('refuses a delegate signature that names a person but cites no grant', async () => {
+      const report = await twoSignatureReport();
+
+      // The service cannot produce this row — it resolves a grant before inserting. This
+      // is the check that still holds when someone writes the insert by hand, which is
+      // the whole reason the guarantee lives in the trigger and not in the service.
+      await expect(
+        withTenant(pool, { orgId: ORG, actorId: cover.userId }, async (tx) => {
+          const revision = await tx.query<{ id: string; content_hash: string }>(
+            'select id, content_hash from report_revision where report_id = $1 order by revision desc limit 1',
+            [report.id],
+          );
+
+          await tx.query(
+            `insert into signature
+               (org_id, report_id, revision_id, actor_id, role, method, content_hash, on_behalf_of)
+             values ($1, $2, $3, $4, 'delegate', 'sso_step_up', $5, $6)`,
+            [
+              ORG,
+              report.id,
+              revision.rows[0]?.id ?? '',
+              cover.userId,
+              revision.rows[0]?.content_hash ?? '',
+              approver.userId,
+            ],
+          );
+        }),
+      ).rejects.toThrow(/must cite the delegation/i);
     });
 
     it('refuses to commit signed with fewer signatures than required', async () => {

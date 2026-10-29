@@ -6,6 +6,8 @@ import { contentHash, type FieldDescriptor, type TokenDocument } from '@reportin
 
 import { type Actor, type StepUpVerifier } from '../auth.js';
 import { problems } from '../errors.js';
+import { APPROVAL_AUTHORITY_ROLE, holdsApprovalAuthority } from '../roles.js';
+import { findLiveDelegation } from './delegation-service.js';
 import { asTokenDocument } from './document.js';
 
 /**
@@ -32,21 +34,8 @@ export interface ReportServiceDeps {
 /** A value the API refuses to store: unbounded field values are a storage bug. */
 const MAX_FIELD_VALUE_LENGTH = 20_000;
 
-/**
- * Who may decide that a report needs more than one signature (D3, ADR-0007).
- *
- * How many people must agree on a report is a governance decision, not a drafting
- * preference, and until this change it was a free field on the create body: an author
- * whose service requires three signatures could ask for one and complete the report
- * alone, with every constraint in the database still satisfied. The number is now
- * settable only by a role that owns the decision, and solo sign stays open to everyone
- * because it is the case that needs no authority.
- *
- * The role name is provisional. It is the seam that E9's IdP role groups will populate,
- * and the placeholder a per-service resolver (template + service + urgency — ADR-0007's
- * revisit trigger) will eventually replace.
- */
-export const APPROVAL_AUTHORITY_ROLE = 'clinical_lead';
+// The authority behind `approvals_required` and behind lending cover lives in `roles.ts`,
+// so that signing and delegation cannot drift apart on who is allowed to decide.
 
 /** The column is `smallint check (1..5)`; a value outside it must be a 400, not a 500. */
 const MAX_APPROVALS_REQUIRED = 5;
@@ -120,7 +109,7 @@ export async function createReport(
     );
   }
 
-  if (approvalsRequired > 1 && !input.actor.roles.includes(APPROVAL_AUTHORITY_ROLE)) {
+  if (approvalsRequired > 1 && !holdsApprovalAuthority(input.actor)) {
     throw problems.forbidden(
       `Only a ${APPROVAL_AUTHORITY_ROLE} may require more than one signature on a report.`,
     );
@@ -324,6 +313,7 @@ export async function signReport(
       }
 
       const onBehalfOf = isAuthor ? null : (input.onBehalfOf ?? null);
+      let delegation: { id: string } | null = null;
 
       if (onBehalfOf !== null) {
         const delegate = await tx.query<{ id: string }>(
@@ -337,6 +327,21 @@ export async function signReport(
 
         if (onBehalfOf === input.actor.userId) {
           throw problems.invalidRequest('A delegate signature cannot cover for itself.');
+        }
+
+        // A name in the body is a claim. Cover is authority, and authority is a grant in
+        // force at this moment (0005). Resolved inside the signing transaction, so the
+        // grant cannot lapse between this check and the insert; the signature's trigger
+        // re-checks the same window against `signed_at` rather than against today.
+        delegation = await findLiveDelegation(tx, {
+          fromUserId: onBehalfOf,
+          toUserId: input.actor.userId,
+        });
+
+        if (delegation === null) {
+          throw problems.noActiveDelegation(
+            'No cover from that person is in force for you right now. A delegate signature needs a delegation that spans this moment.',
+          );
         }
       }
 
@@ -369,8 +374,8 @@ export async function signReport(
       await tx.query(
         `insert into signature
            (org_id, report_id, revision_id, actor_id, role, method, content_hash,
-            auth_context, on_behalf_of)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+            auth_context, on_behalf_of, delegation_id)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
         [
           input.actor.orgId,
           report.id,
@@ -381,6 +386,7 @@ export async function signReport(
           revision.content_hash,
           JSON.stringify(grant.authContext),
           onBehalfOf,
+          delegation?.id ?? null,
         ],
       );
 
@@ -418,6 +424,7 @@ export async function signReport(
             signatures,
             approvals_required: report.approvals_required,
             on_behalf_of: onBehalfOf,
+            delegation_id: delegation?.id ?? null,
           },
         });
       } else {
@@ -443,6 +450,7 @@ export async function signReport(
             signatures,
             approvals_required: report.approvals_required,
             on_behalf_of: onBehalfOf,
+            delegation_id: delegation?.id ?? null,
           },
         });
       }

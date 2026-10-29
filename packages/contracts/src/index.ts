@@ -87,3 +87,23 @@ export interface ProblemDetails {
 }
 
 export const CONTENT_TYPE_PROBLEM = 'application/problem+json' as const;
+
+/**
+ * Authority lent from one person to another for a bounded window (ADR-0007).
+ *
+ * A delegate signature cites one of these, so "who said you could sign for them" is a
+ * row rather than an assertion in a request body.
+ */
+export interface DelegationResource {
+  readonly id: string;
+  /** The person whose authority is lent — the one who is away. */
+  readonly from_user_id: string;
+  /** The person who may exercise it. */
+  readonly to_user_id: string;
+  /** The delegator, or a clinical lead granting cover for someone already absent. */
+  readonly granted_by_user_id: string;
+  /** What is lent. Only `approval` today. */
+  readonly scope: 'approval';
+  readonly starts_at: string;
+  readonly expires_at: string;
+}

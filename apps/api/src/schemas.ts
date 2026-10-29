@@ -42,6 +42,26 @@ export const signBodySchema = z
 
 export const reportParamsSchema = z.object({ id: z.uuid() });
 
+export const createDelegationBodySchema = z
+  .object({
+    /** Defaults to the caller: lending your own authority needs no permission. */
+    from_user_id: z.uuid().optional(),
+    to_user_id: z.uuid(),
+    /** Required on purpose — a grant with no end is what this endpoint exists to prevent. */
+    expires_at: z.string().min(1).max(64),
+  })
+  .strict();
+
+export const delegationResourceSchema = z.object({
+  id: z.uuid(),
+  from_user_id: z.uuid(),
+  to_user_id: z.uuid(),
+  granted_by_user_id: z.uuid(),
+  scope: z.literal('approval'),
+  starts_at: z.string(),
+  expires_at: z.string(),
+});
+
 /** Documentation mirror of `TokenDocument`. Loose: the token union is `tokens`'s to define. */
 export const tokenDocumentSchema = z.looseObject({
   schema_version: z.number().int(),

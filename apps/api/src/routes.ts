@@ -1,6 +1,7 @@
 import { type ZodType } from 'zod';
 
 import { type Actor } from './auth.js';
+import { createDelegation } from './domain/delegation-service.js';
 import {
   createReport,
   getReport,
@@ -9,7 +10,9 @@ import {
   type ReportServiceDeps,
 } from './domain/report-service.js';
 import {
+  createDelegationBodySchema,
   createReportBodySchema,
+  delegationResourceSchema,
   reportParamsSchema,
   reportResourceSchema,
   saveDraftBodySchema,
@@ -65,6 +68,29 @@ export const ROUTES: readonly RouteDefinition[] = [
         modality: input.modality,
         fieldValues: input.field_values ?? {},
         approvalsRequired: input.approvals_required,
+      });
+    },
+  },
+  {
+    method: 'post',
+    path: '/v1/delegations',
+    operationId: 'createDelegation',
+    summary: 'Lend authority to sign, to one person, until a date',
+    body: createDelegationBodySchema,
+    params: undefined,
+    okStatus: 201,
+    okSchema: delegationResourceSchema,
+    requiresIfMatch: false,
+    handler: async ({ actor, deps, body }) => {
+      const input = createDelegationBodySchema.parse(body);
+
+      return createDelegation(deps, {
+        actor,
+        // Spread rather than assign: `exactOptionalPropertyTypes` distinguishes "absent"
+        // from "present and undefined", and absent is what "lend your own authority" means.
+        ...(input.from_user_id === undefined ? {} : { fromUserId: input.from_user_id }),
+        toUserId: input.to_user_id,
+        expiresAt: input.expires_at,
       });
     },
   },
