@@ -110,11 +110,17 @@ jobs:
       - name: Corpus round-trip
         run: pnpm corpus
 
+      # The OpenAPI document is generated from the Zod schemas, never hand-kept
+      # (ADR-0006). Regenerating it here means a changed contract cannot land
+      # without the change appears in the diff.
+      - name: Regenerate OpenAPI
+        run: pnpm --filter @reporting/api openapi
+
       # Determinism: regenerating the artefacts must produce exactly what is
       # committed. If this fails, either the importer changed behaviour or the
       # committed output was edited by hand.
       - name: Artefacts reproducible
-        run: git diff --exit-code -- corpus
+        run: git diff --exit-code -- corpus apps/api/openapi.json
 
   commitlint:
     name: commit messages
