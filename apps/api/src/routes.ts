@@ -64,6 +64,7 @@ export const ROUTES: readonly RouteDefinition[] = [
         accession: input.accession,
         modality: input.modality,
         fieldValues: input.field_values ?? {},
+        approvalsRequired: input.approvals_required,
       });
     },
   },
@@ -118,6 +119,7 @@ export const ROUTES: readonly RouteDefinition[] = [
         reportId: params.id ?? '',
         ifMatch,
         stepUpAssertion: input.step_up_token,
+        onBehalfOf: input.on_behalf_of,
       });
     },
   },

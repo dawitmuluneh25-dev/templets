@@ -39,6 +39,8 @@ export interface CreateReportInput {
   readonly accession?: string | undefined;
   readonly modality: string;
   readonly fieldValues?: Readonly<Record<string, string>>;
+  /** 1 = solo sign; N = the author plus N-1 others (D3). */
+  readonly approvalsRequired?: number | undefined;
 }
 
 export interface SaveDraftInput {
@@ -55,7 +57,14 @@ export interface SignReportInput {
   readonly ifMatch: string;
   /** The step-up assertion presented with the sign request, if any. */
   readonly stepUpAssertion: string | undefined;
+  /**
+   * Cross-cover: the user this signature covers for. Only meaningful when the signer
+   * is not the author; the database refuses a delegate signature without it.
+   */
+  readonly onBehalfOf?: string | undefined;
 }
+
+export type SignatureRole = 'author' | 'approver' | 'delegate';
 
 interface ReportRow {
   readonly id: string;
@@ -64,6 +73,7 @@ interface ReportRow {
   readonly template_version_id: string;
   readonly current_hash: string;
   readonly signed_at: Date | null;
+  readonly approvals_required: number;
 }
 
 interface VersionRow {
@@ -101,10 +111,18 @@ export async function createReport(
       if (studyId === undefined) throw problems.internal('study insert returned no row');
 
       const report = await tx.query<{ id: string }>(
-        `insert into report (org_id, study_id, template_version_id, author_id, current_hash)
-       values ($1, $2, $3, $4, $5)
+        `insert into report (org_id, study_id, template_version_id, author_id, current_hash,
+                            approvals_required)
+       values ($1, $2, $3, $4, $5, $6)
        returning id`,
-        [input.actor.orgId, studyId, input.templateVersionId, input.actor.userId, digest],
+        [
+          input.actor.orgId,
+          studyId,
+          input.templateVersionId,
+          input.actor.userId,
+          digest,
+          input.approvalsRequired ?? 1,
+        ],
       );
 
       const reportId = report.rows[0]?.id;
@@ -220,6 +238,13 @@ export async function signReport(
 
       if (report.current_hash !== input.ifMatch) throw problems.preconditionFailed();
 
+      const isAuthor = input.actor.userId === report.author_id;
+
+      // An approver signs a report the author has already signed. Allowing an
+      // approver onto a draft would produce a state the database refuses at commit
+      // (signed, with the author's own signature missing) - a 500 instead of a 409.
+      if (!isAuthor && report.state === 'draft') throw problems.reportNotSubmitted();
+
       const latest = await tx.query<{ id: string; revision: number; content_hash: string }>(
         `select id, revision, content_hash
          from report_revision
@@ -238,6 +263,35 @@ export async function signReport(
         throw problems.revisionMismatch(
           'The report hash does not match its latest revision; save before signing.',
         );
+      }
+
+      // D3 (decided): N-of-M with cross-cover. The author's signature is one of
+      // the N; everyone else's is an approval; a `delegate` signature is an
+      // approval given on behalf of an absent attending and counts toward N.
+      const alreadySigned = await tx.query(
+        'select 1 from signature where report_id = $1 and revision_id = $2 and actor_id = $3',
+        [report.id, revision.id, input.actor.userId],
+      );
+
+      if (alreadySigned.rowCount !== null && alreadySigned.rowCount > 0) {
+        throw problems.alreadySigned('You have already signed this revision.');
+      }
+
+      const onBehalfOf = isAuthor ? null : (input.onBehalfOf ?? null);
+
+      if (onBehalfOf !== null) {
+        const delegate = await tx.query<{ id: string }>(
+          'select id from app_user where id = $1 and active',
+          [onBehalfOf],
+        );
+
+        if (delegate.rows[0] === undefined) {
+          throw problems.invalidRequest('on_behalf_of names no active user in this organisation.');
+        }
+
+        if (onBehalfOf === input.actor.userId) {
+          throw problems.invalidRequest('A delegate signature cannot cover for itself.');
+        }
       }
 
       if (!deps.stepUp.available) {
@@ -260,16 +314,17 @@ export async function signReport(
         );
       }
 
-      // The author signing their own draft and a second attending countersigning are
-      // different roles on the same row. Which of them completes a signature is the
-      // D3 decision; recording the role correctly is what lets that decision be
-      // implemented later without rewriting history.
-      const role = input.actor.userId === report.author_id ? 'author' : 'approver';
+      const role: SignatureRole = isAuthor
+        ? 'author'
+        : onBehalfOf === null
+          ? 'approver'
+          : 'delegate';
 
       await tx.query(
         `insert into signature
-         (org_id, report_id, revision_id, actor_id, role, method, content_hash, auth_context)
-       values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+           (org_id, report_id, revision_id, actor_id, role, method, content_hash,
+            auth_context, on_behalf_of)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           input.actor.orgId,
           report.id,
@@ -279,28 +334,72 @@ export async function signReport(
           grant.method,
           revision.content_hash,
           JSON.stringify(grant.authContext),
+          onBehalfOf,
         ],
       );
 
-      await tx.query(
-        `update report
-          set state = 'signed', signed_at = now(), assigned_signer_id = $2
-        where id = $1`,
-        [report.id, input.actor.userId],
+      // Count what is on the revision now. Two signatures from the same person are
+      // impossible (unique per person per revision), so this is a count of people.
+      const collected = await tx.query<{ count: number }>(
+        'select count(*)::int as count from signature where report_id = $1 and revision_id = $2',
+        [report.id, revision.id],
       );
 
-      await appendAudit(tx, {
-        orgId: input.actor.orgId,
-        actorId: input.actor.userId,
-        actorRole: role,
-        action: 'report.signed',
-        subjectType: 'report',
-        subjectId: report.id,
-        beforeHash: null,
-        afterHash: revision.content_hash,
-        meta: { revision_id: revision.id, revision: revision.revision, method: grant.method },
-      });
+      const signatures = collected.rows[0]?.count ?? 1;
+      const complete = signatures >= report.approvals_required;
 
+      if (complete) {
+        await tx.query(
+          `update report
+              set state = 'signed', signed_at = now(), assigned_signer_id = $2
+            where id = $1`,
+          [report.id, input.actor.userId],
+        );
+
+        await appendAudit(tx, {
+          orgId: input.actor.orgId,
+          actorId: input.actor.userId,
+          actorRole: role,
+          action: 'report.signed',
+          subjectType: 'report',
+          subjectId: report.id,
+          beforeHash: null,
+          afterHash: revision.content_hash,
+          meta: {
+            revision_id: revision.id,
+            revision: revision.revision,
+            method: grant.method,
+            signatures,
+            approvals_required: report.approvals_required,
+            on_behalf_of: onBehalfOf,
+          },
+        });
+      } else {
+        // Not enough yet. A draft becomes `submitted` (the author has signed and the
+        // report is now with approvers); a submitted report simply waits.
+        if (report.state === 'draft') {
+          await tx.query("update report set state = 'submitted' where id = $1", [report.id]);
+        }
+
+        await appendAudit(tx, {
+          orgId: input.actor.orgId,
+          actorId: input.actor.userId,
+          actorRole: role,
+          action: isAuthor ? 'report.submitted' : 'report.countersigned',
+          subjectType: 'report',
+          subjectId: report.id,
+          beforeHash: null,
+          afterHash: revision.content_hash,
+          meta: {
+            revision_id: revision.id,
+            revision: revision.revision,
+            method: grant.method,
+            signatures,
+            approvals_required: report.approvals_required,
+            on_behalf_of: onBehalfOf,
+          },
+        });
+      }
       return loadResource(tx, report.id);
     },
   );
@@ -322,7 +421,8 @@ async function lockReport(tx: Tx, reportId: string): Promise<ReportRow> {
   // FOR UPDATE, so two signers cannot both pass the state check and both write a
   // signature for the same revision.
   const row = await tx.query<ReportRow>(
-    `select id, state, author_id, template_version_id, current_hash, signed_at
+    `select id, state, author_id, template_version_id, current_hash, signed_at,
+            approvals_required
        from report
       where id = $1
       for update`,
@@ -415,7 +515,7 @@ function assertKnownFields(
 async function loadResource(tx: Tx, reportId: string): Promise<ReportResource> {
   const row = await tx.query<ReportRow & { token_stream: unknown }>(
     `select r.id, r.state, r.author_id, r.template_version_id, r.current_hash, r.signed_at,
-            tv.token_stream
+            r.approvals_required, tv.token_stream
        from report r
        join template_version tv on tv.id = r.template_version_id
       where r.id = $1`,
@@ -436,6 +536,14 @@ async function loadResource(tx: Tx, reportId: string): Promise<ReportResource> {
 
   const revision = latest.rows[0];
 
+  const signatures = await tx.query<{ actor_id: string; role: SignatureRole; signed_at: Date }>(
+    `select actor_id, role, signed_at
+       from signature
+      where report_id = $1
+      order by signed_at`,
+    [reportId],
+  );
+
   return {
     id: report.id,
     state: report.state,
@@ -445,5 +553,11 @@ async function loadResource(tx: Tx, reportId: string): Promise<ReportResource> {
     field_values: revision?.field_values ?? {},
     current_hash: report.current_hash,
     signed_at: report.signed_at === null ? null : report.signed_at.toISOString(),
+    approvals_required: report.approvals_required,
+    signatures: signatures.rows.map((row) => ({
+      actor_id: row.actor_id,
+      role: row.role,
+      signed_at: row.signed_at.toISOString(),
+    })),
   };
 }

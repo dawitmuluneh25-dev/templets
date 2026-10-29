@@ -20,6 +20,8 @@ export const createReportBodySchema = z
     accession: z.string().min(1).max(64).optional(),
     modality: z.string().min(1).max(16),
     field_values: fieldValuesSchema.optional(),
+    /** D3: how many signatures complete the report. 1 is solo sign. */
+    approvals_required: z.number().int().min(1).max(5).optional(),
   })
   .strict();
 
@@ -33,6 +35,8 @@ export const signBodySchema = z
      * the client needs to be able to tell those apart.
      */
     step_up_token: z.string().min(1).max(4096).optional(),
+    /** Cross-cover: the user this signature covers for. */
+    on_behalf_of: z.uuid().optional(),
   })
   .strict();
 
@@ -49,6 +53,14 @@ export const reportResourceSchema = z.object({
   state: z.enum(['draft', 'submitted', 'signed', 'amended', 'returned']),
   template_version_id: z.uuid(),
   revision: z.number().int().min(0),
+  approvals_required: z.number().int().min(1).max(5),
+  signatures: z.array(
+    z.object({
+      actor_id: z.uuid(),
+      role: z.enum(['author', 'approver', 'delegate']),
+      signed_at: z.string(),
+    }),
+  ),
   document: tokenDocumentSchema,
   field_values: z.record(z.string(), z.string()),
   current_hash: z.string().regex(/^sha256:[0-9a-f]{64}$/),

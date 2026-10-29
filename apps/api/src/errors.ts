@@ -21,6 +21,8 @@ export type ProblemCode =
   | 'template_version_not_found'
   | 'report_not_editable'
   | 'report_already_signed'
+  | 'report_not_submitted'
+  | 'already_signed'
   | 'revision_mismatch'
   | 'precondition_required'
   | 'precondition_failed'
@@ -37,6 +39,8 @@ const TITLES: Readonly<Record<ProblemCode, string>> = {
   template_version_not_found: 'Template version not found',
   report_not_editable: 'Report is not editable in its current state',
   report_already_signed: 'Report is already signed',
+  report_not_submitted: 'Report has not been submitted for approval',
+  already_signed: 'This revision already carries your signature',
   revision_mismatch: 'Report content does not match its latest revision',
   precondition_required: 'If-Match header required',
   precondition_failed: 'If-Match does not match the current hash',
@@ -80,6 +84,13 @@ export const problems = {
   reportNotEditable: (state: string) =>
     new ApiError('report_not_editable', 409, `A report in state "${state}" cannot be edited.`),
   reportAlreadySigned: () => new ApiError('report_already_signed', 409, 'This report is signed.'),
+  reportNotSubmitted: () =>
+    new ApiError(
+      'report_not_submitted',
+      409,
+      'The author must sign this report before anyone can approve it.',
+    ),
+  alreadySigned: (detail: string) => new ApiError('already_signed', 409, detail),
   revisionMismatch: (detail: string) => new ApiError('revision_mismatch', 409, detail),
   preconditionRequired: () =>
     new ApiError('precondition_required', 428, "Send If-Match with the report's current_hash."),

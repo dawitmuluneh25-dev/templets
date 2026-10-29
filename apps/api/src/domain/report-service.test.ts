@@ -54,6 +54,8 @@ describe.skipIf(!enabled)('report vertical slice', () => {
   let owner: pg.Client;
   let pool: pg.Pool;
   let actor: Actor;
+  let approver: Actor;
+  let cover: Actor;
   let versionId: string;
   let otherReportId: string;
   const stepUp = new TestOnlyFixedTokenStepUp(STEP_UP_TOKEN);
@@ -67,10 +69,14 @@ describe.skipIf(!enabled)('report vertical slice', () => {
     await owner.query('begin');
     await owner.query("select set_config('app.org_id', $1, true)", [orgId]);
     await owner.query('insert into org (id, name) values ($1, $2)', [orgId, `Radiology ${label}`]);
-    await owner.query(
-      'insert into app_user (org_id, idp_subject, display_name, roles) values ($1, $2, $3, $4)',
-      [orgId, `subject-${label}`, `Dr ${label}`, ['radiologist']],
-    );
+    // Three people: the author, a second attending, and someone an absent attending
+    // can be covered by. Cross-cover needs a real third identity to point at.
+    for (const suffix of ['', '-2', '-3']) {
+      await owner.query(
+        'insert into app_user (org_id, idp_subject, display_name, roles) values ($1, $2, $3, $4)',
+        [orgId, `subject-${label}${suffix}`, `Dr ${label}${suffix}`, ['radiologist']],
+      );
+    }
 
     const parsed = parse(BODY);
     const document: TokenDocument = { schema_version: 1, tokens: parsed.tokens };
@@ -148,14 +154,24 @@ describe.skipIf(!enabled)('report vertical slice', () => {
       'select id, idp_subject, roles from app_user where idp_subject = $1',
       ['subject-A'],
     );
+    // Read inside the tenant transaction: `set_config(..., true)` is reverted at
+    // commit, and a policy evaluation afterwards raises rather than returning rows.
+    const others = await owner.query<{ id: string; idp_subject: string; roles: string[] }>(
+      "select id, idp_subject, roles from app_user where idp_subject in ('subject-A-2', 'subject-A-3') order by idp_subject",
+    );
     await owner.query('commit');
 
-    actor = {
+    const asActor = (row: { id: string; idp_subject: string; roles: string[] }): Actor => ({
       orgId: ORG,
-      userId: user.rows[0]?.id ?? '',
-      idpSubject: user.rows[0]?.idp_subject ?? '',
-      roles: user.rows[0]?.roles ?? [],
-    };
+      userId: row.id,
+      idpSubject: row.idp_subject,
+      roles: row.roles,
+    });
+
+    actor = asActor(user.rows[0] ?? { id: '', idp_subject: '', roles: [] });
+
+    approver = asActor(others.rows[0] ?? { id: '', idp_subject: '', roles: [] });
+    cover = asActor(others.rows[1] ?? { id: '', idp_subject: '', roles: [] });
 
     pool = createPool(appUrl, 'reporting-api-test');
   }, 60_000);
@@ -391,5 +407,168 @@ describe.skipIf(!enabled)('report vertical slice', () => {
 
   it('cannot reach another tenant’s report by id', async () => {
     await expect(getReport(deps(), actor, otherReportId)).rejects.toThrow(/No report/);
+  });
+
+  /**
+   * D3: N-of-M with cross-cover. `approvals_required` counts signatures, and the
+   * author's is one of them.
+   */
+  describe('multi-signature approval', () => {
+    async function twoSignatureReport(): Promise<{ id: string; currentHash: string }> {
+      const report = await createReport(deps(), {
+        actor,
+        templateVersionId: versionId,
+        studyInstanceUid: `1.2.840.${randomUUID()}`,
+        modality: 'XR',
+        approvalsRequired: 2,
+      });
+
+      return { id: report.id, currentHash: report.current_hash };
+    }
+
+    it('holds the report at submitted until the second signature arrives', async () => {
+      const report = await twoSignatureReport();
+
+      const submitted = await signReport(deps(), {
+        actor,
+        reportId: report.id,
+        ifMatch: report.currentHash,
+        stepUpAssertion: STEP_UP_TOKEN,
+      });
+
+      expect(submitted.state).toBe('submitted');
+      expect(submitted.approvals_required).toBe(2);
+      expect(submitted.signatures).toHaveLength(1);
+      expect(submitted.signed_at).toBeNull();
+      expect(await auditActions(report.id)).toEqual(['report.created', 'report.submitted']);
+
+      const signed = await signReport(deps(), {
+        actor: approver,
+        reportId: report.id,
+        ifMatch: submitted.current_hash,
+        stepUpAssertion: STEP_UP_TOKEN,
+      });
+
+      expect(signed.state).toBe('signed');
+      expect(signed.signatures.map((signature) => signature.role)).toEqual(['author', 'approver']);
+      expect(await auditActions(report.id)).toEqual([
+        'report.created',
+        'report.submitted',
+        'report.signed',
+      ]);
+    });
+
+    it('refuses an approver while the report is still a draft', async () => {
+      const report = await twoSignatureReport();
+
+      await expect(
+        signReport(deps(), {
+          actor: approver,
+          reportId: report.id,
+          ifMatch: report.currentHash,
+          stepUpAssertion: STEP_UP_TOKEN,
+        }),
+      ).rejects.toMatchObject({ code: 'report_not_submitted' });
+    });
+
+    it('refuses a second signature from the same person', async () => {
+      const report = await twoSignatureReport();
+      const submitted = await signReport(deps(), {
+        actor,
+        reportId: report.id,
+        ifMatch: report.currentHash,
+        stepUpAssertion: STEP_UP_TOKEN,
+      });
+
+      await expect(
+        signReport(deps(), {
+          actor,
+          reportId: report.id,
+          ifMatch: submitted.current_hash,
+          stepUpAssertion: STEP_UP_TOKEN,
+        }),
+      ).rejects.toMatchObject({ code: 'already_signed' });
+    });
+
+    it('counts a cross-cover signature and records who it covers for', async () => {
+      const report = await twoSignatureReport();
+      const submitted = await signReport(deps(), {
+        actor,
+        reportId: report.id,
+        ifMatch: report.currentHash,
+        stepUpAssertion: STEP_UP_TOKEN,
+      });
+
+      const signed = await signReport(deps(), {
+        actor: cover,
+        reportId: report.id,
+        ifMatch: submitted.current_hash,
+        stepUpAssertion: STEP_UP_TOKEN,
+        onBehalfOf: approver.userId,
+      });
+
+      expect(signed.state).toBe('signed');
+
+      await withTenant(pool, { orgId: ORG }, async (tx) => {
+        const row = await tx.query<{ role: string; on_behalf_of: string | null }>(
+          'select role, on_behalf_of from signature where report_id = $1 and actor_id = $2',
+          [report.id, cover.userId],
+        );
+
+        expect(row.rows[0]?.role).toBe('delegate');
+        expect(row.rows[0]?.on_behalf_of).toBe(approver.userId);
+      });
+    });
+
+    it('refuses a delegate signature that names nobody', async () => {
+      const report = await twoSignatureReport();
+
+      await expect(
+        withTenant(pool, { orgId: ORG, actorId: cover.userId }, async (tx) => {
+          const revision = await tx.query<{ id: string; content_hash: string }>(
+            'select id, content_hash from report_revision where report_id = $1 order by revision desc limit 1',
+            [report.id],
+          );
+
+          await tx.query(
+            `insert into signature
+               (org_id, report_id, revision_id, actor_id, role, method, content_hash)
+             values ($1, $2, $3, $4, 'delegate', 'sso_step_up', $5)`,
+            [
+              ORG,
+              report.id,
+              revision.rows[0]?.id ?? '',
+              cover.userId,
+              revision.rows[0]?.content_hash ?? '',
+            ],
+          );
+        }),
+      ).rejects.toThrow(/must name the person/i);
+    });
+
+    it('refuses to commit signed with fewer signatures than required', async () => {
+      const report = await twoSignatureReport();
+      const submitted = await signReport(deps(), {
+        actor,
+        reportId: report.id,
+        ifMatch: report.currentHash,
+        stepUpAssertion: STEP_UP_TOKEN,
+      });
+
+      expect(submitted.state).toBe('submitted');
+
+      const client = await pool.connect();
+
+      try {
+        await client.query('begin');
+        await client.query("select set_config('app.org_id', $1, true)", [ORG]);
+        await client.query("update report set state = 'signed' where id = $1", [report.id]);
+
+        await expect(client.query('commit')).rejects.toThrow(/but requires 2/i);
+      } finally {
+        await client.query('rollback').catch(() => undefined);
+        client.release();
+      }
+    });
   });
 });
