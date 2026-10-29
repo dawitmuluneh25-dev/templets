@@ -24,7 +24,8 @@ the documentation set that carries the project from prototype to production.
 │   ├── template-schema/           Manifest contract and provenance classification (ADR-0004)
 │   ├── validation/                Severity vocabulary and findings
 │   └── contracts/                 Wire contract: resources, problem details, versioning
-├── apps/                          web · api · worker — created as each has something to assert
+├── apps/                          api (vertical slice) · web · worker — each arrives with something to assert
+│   └── api/                       Fastify + Zod: create → autosave → sign, plus generated openapi.json
 ├── db/                            PostgreSQL 16 schema, migrations, tenant-isolation test
 ├── alem-reporting-templates/      Source corpus (do not edit — provenance for data/templates.json)
 │   ├── AlemHealth/                290 exported templates
@@ -59,6 +60,7 @@ pnpm verify               # lint · format:check · typecheck · test · build
 | `pnpm test` | Vitest, from the root, resolving workspace packages to source |
 | `pnpm corpus` | Regenerate `corpus/` from the frozen export; exits non-zero if any file cannot round-trip |
 | `pnpm db:migrate` | Apply pending migrations (needs `DATABASE_URL` in `.env.local`) |
+| `pnpm openapi` | Regenerate `apps/api/openapi.json` from the Zod schemas (needs a build first) |
 | `pnpm build` | `tsc` per package via Turborepo, into each package's `dist/` |
 | `pnpm verify` | All of the above, in the order CI runs them |
 
