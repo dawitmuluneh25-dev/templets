@@ -8,7 +8,13 @@ import { contentHash, parse, type TokenDocument } from '@reporting/tokens';
 
 import { TestOnlyFixedTokenStepUp, type Actor } from '../auth.js';
 import { ApiError } from '../errors.js';
-import { createReport, getReport, saveDraft, signReport } from './report-service.js';
+import {
+  APPROVAL_AUTHORITY_ROLE,
+  createReport,
+  getReport,
+  saveDraft,
+  signReport,
+} from './report-service.js';
 
 /**
  * The vertical slice, against a real PostgreSQL through the *runtime* role.
@@ -72,9 +78,14 @@ describe.skipIf(!enabled)('report vertical slice', () => {
     // Three people: the author, a second attending, and someone an absent attending
     // can be covered by. Cross-cover needs a real third identity to point at.
     for (const suffix of ['', '-2', '-3']) {
+      // The author also holds the approval authority: in a small group the people who
+      // decide a report needs two signatures are the people who write them. `approver`
+      // and `cover` deliberately do not, so the refusal below has a real subject.
+      const roles = suffix === '' ? ['radiologist', APPROVAL_AUTHORITY_ROLE] : ['radiologist'];
+
       await owner.query(
         'insert into app_user (org_id, idp_subject, display_name, roles) values ($1, $2, $3, $4)',
-        [orgId, `subject-${label}${suffix}`, `Dr ${label}${suffix}`, ['radiologist']],
+        [orgId, `subject-${label}${suffix}`, `Dr ${label}${suffix}`, roles],
       );
     }
 
@@ -600,6 +611,7 @@ describe.skipIf(!enabled)('report vertical slice', () => {
 
       expect(submitted.state).toBe('submitted');
       expect(submitted.signatures).toHaveLength(1);
+      expect(submitted.approvals_remaining).toBe(2);
 
       const countersigned = await signReport(deps(), {
         actor: approver,
@@ -610,6 +622,8 @@ describe.skipIf(!enabled)('report vertical slice', () => {
 
       expect(countersigned.state).toBe('submitted');
       expect(countersigned.signed_at).toBeNull();
+      // The number the worklist renders: one more person, after this one.
+      expect(countersigned.approvals_remaining).toBe(1);
       expect(countersigned.signatures.map((signature) => signature.role)).toEqual([
         'author',
         'approver',
@@ -679,6 +693,66 @@ describe.skipIf(!enabled)('report vertical slice', () => {
 
         expect(rows.rowCount).toBe(1);
       });
+    });
+
+    /**
+     * The requirement is a governance decision, and it was a free field on the create
+     * body until the gate below existed: an author whose service requires two signatures
+     * could ask for one and complete the report alone, while every database constraint
+     * still held. The gate is not a policy engine — it names who may decide, until the
+     * per-service resolver in ADR-0007's revisit triggers exists.
+     */
+    it('refuses to require more than one signature without the approval authority', async () => {
+      await expect(
+        createReport(deps(), {
+          actor: cover,
+          templateVersionId: versionId,
+          studyInstanceUid: `1.2.840.${randomUUID()}`,
+          modality: 'XR',
+          approvalsRequired: 2,
+        }),
+      ).rejects.toMatchObject({ code: 'forbidden' });
+    });
+
+    it('still lets anyone create a solo-sign report', async () => {
+      const report = await createReport(deps(), {
+        actor: cover,
+        templateVersionId: versionId,
+        studyInstanceUid: `1.2.840.${randomUUID()}`,
+        modality: 'XR',
+      });
+
+      expect(report.approvals_required).toBe(1);
+      expect(report.approvals_remaining).toBe(1);
+    });
+
+    it('records what the report was asked to be in the creation event', async () => {
+      const report = await twoSignatureReport();
+
+      const meta = await withTenant(pool, { orgId: ORG }, async (tx) => {
+        const rows = await tx.query<{ meta: { approvals_required?: number } }>(
+          "select meta from audit_event where subject_id = $1 and action = 'report.created'",
+          [report.id],
+        );
+
+        return rows.rows[0]?.meta;
+      });
+
+      // Evidence, not configuration: a later policy change must not be readable back
+      // onto a report that was signed under the old one.
+      expect(meta?.approvals_required).toBe(2);
+    });
+
+    it('rejects an approval count outside the column’s range as a request error', async () => {
+      await expect(
+        createReport(deps(), {
+          actor,
+          templateVersionId: versionId,
+          studyInstanceUid: `1.2.840.${randomUUID()}`,
+          modality: 'XR',
+          approvalsRequired: 6,
+        }),
+      ).rejects.toMatchObject({ code: 'invalid_request' });
     });
   });
 });

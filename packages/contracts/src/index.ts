@@ -53,6 +53,12 @@ export interface ReportResource {
   readonly revision: number;
   /** Signatures needed to complete the report (D3). 1 is solo sign. */
   readonly approvals_required: number;
+  /**
+   * How many more distinct signatures the current revision needs; 0 once the
+   * requirement is met. Derived from the revision's signatures on every read, never
+   * remembered — `signed` is a count, not a flag (ADR-0007).
+   */
+  readonly approvals_remaining: number;
   /** Signatures collected on the current revision, oldest first. */
   readonly signatures: readonly SignatureSummary[];
   readonly document: TokenDocument;

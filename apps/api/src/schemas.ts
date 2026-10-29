@@ -54,6 +54,7 @@ export const reportResourceSchema = z.object({
   template_version_id: z.uuid(),
   revision: z.number().int().min(0),
   approvals_required: z.number().int().min(1).max(5),
+  approvals_remaining: z.number().int().min(0).max(5),
   signatures: z.array(
     z.object({
       actor_id: z.uuid(),

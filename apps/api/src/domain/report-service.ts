@@ -32,6 +32,25 @@ export interface ReportServiceDeps {
 /** A value the API refuses to store: unbounded field values are a storage bug. */
 const MAX_FIELD_VALUE_LENGTH = 20_000;
 
+/**
+ * Who may decide that a report needs more than one signature (D3, ADR-0007).
+ *
+ * How many people must agree on a report is a governance decision, not a drafting
+ * preference, and until this change it was a free field on the create body: an author
+ * whose service requires three signatures could ask for one and complete the report
+ * alone, with every constraint in the database still satisfied. The number is now
+ * settable only by a role that owns the decision, and solo sign stays open to everyone
+ * because it is the case that needs no authority.
+ *
+ * The role name is provisional. It is the seam that E9's IdP role groups will populate,
+ * and the placeholder a per-service resolver (template + service + urgency — ADR-0007's
+ * revisit trigger) will eventually replace.
+ */
+export const APPROVAL_AUTHORITY_ROLE = 'clinical_lead';
+
+/** The column is `smallint check (1..5)`; a value outside it must be a 400, not a 500. */
+const MAX_APPROVALS_REQUIRED = 5;
+
 export interface CreateReportInput {
   readonly actor: Actor;
   readonly templateVersionId: string;
@@ -86,6 +105,26 @@ export async function createReport(
   input: CreateReportInput,
 ): Promise<ReportResource> {
   const fieldValues = input.fieldValues ?? {};
+  const approvalsRequired = input.approvalsRequired ?? 1;
+
+  // Range first, then authority: telling someone they may not ask for 7 is less useful
+  // than telling them 7 is not a thing. The column is `check (1..5)`, so without this
+  // the constraint violation would surface as a 500 rather than a 400.
+  if (
+    !Number.isInteger(approvalsRequired) ||
+    approvalsRequired < 1 ||
+    approvalsRequired > MAX_APPROVALS_REQUIRED
+  ) {
+    throw problems.invalidRequest(
+      `approvals_required must be a whole number between 1 and ${MAX_APPROVALS_REQUIRED}.`,
+    );
+  }
+
+  if (approvalsRequired > 1 && !input.actor.roles.includes(APPROVAL_AUTHORITY_ROLE)) {
+    throw problems.forbidden(
+      `Only a ${APPROVAL_AUTHORITY_ROLE} may require more than one signature on a report.`,
+    );
+  }
 
   return withTenant(
     deps.pool,
@@ -121,7 +160,7 @@ export async function createReport(
           input.templateVersionId,
           input.actor.userId,
           digest,
-          input.approvalsRequired ?? 1,
+          approvalsRequired,
         ],
       );
 
@@ -147,7 +186,14 @@ export async function createReport(
         subjectId: reportId,
         beforeHash: null,
         afterHash: digest,
-        meta: { template_version_id: input.templateVersionId, revision: 1 },
+        // The approval requirement is part of the creation evidence, not configuration:
+        // the trail has to show what this report was asked to be, so a later change of
+        // policy cannot be read back onto a report signed under the old one.
+        meta: {
+          template_version_id: input.templateVersionId,
+          revision: 1,
+          approvals_required: approvalsRequired,
+        },
       });
 
       return loadResource(tx, reportId);
@@ -568,6 +614,11 @@ async function loadResource(tx: Tx, reportId: string): Promise<ReportResource> {
     current_hash: report.current_hash,
     signed_at: report.signed_at === null ? null : report.signed_at.toISOString(),
     approvals_required: report.approvals_required,
+    // Derived, never stored. `signature_one_per_person_per_revision` makes the row count
+    // a count of people, and scoping to the revision makes it a count of people for these
+    // bytes. A client that subtracted for itself would be a second implementation of the
+    // completion rule, and the two would disagree the first time one of them drifted.
+    approvals_remaining: Math.max(0, report.approvals_required - signatures.rows.length),
     signatures: signatures.rows.map((row) => ({
       actor_id: row.actor_id,
       role: row.role,

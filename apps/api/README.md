@@ -31,11 +31,38 @@ unless identity is configured. That is deliberate — see *What is absent* below
 | `PUT` | `/v1/reports/:id/draft` | required | next `report_revision`, `report.current_hash`, `report.draft_saved` |
 | `POST` | `/v1/reports/:id/sign` | required | `signature`; `report.state='submitted'` with `report.submitted`/`report.countersigned`, or `'signed'` with `report.signed` when the count is reached |
 
-`POST /v1/reports` takes `approvals_required` (1–5, default 1). `POST …/sign` takes `on_behalf_of`,
-which is only meaningful for someone who is not the author and makes the signature a `delegate`
-covering for that user. A report needing N signatures is signed by N distinct people: the author's
-own signature moves it `draft → submitted`, and the signature that reaches N moves it `submitted →
-signed`. `report_not_submitted` (409) is what an approver gets if they try to sign before the author.
+`POST /v1/reports` takes `approvals_required` (1–5, default 1). **Anything above 1 requires the
+`clinical_lead` role** — otherwise `403 forbidden`. The requirement is a governance decision, and
+setting it is the only place in this slice where that decision is made. `POST …/sign` takes
+`on_behalf_of`, which is only meaningful for someone who is not the author and makes the signature a
+`delegate` covering for that user. A report needing N signatures is signed by N distinct people: the
+author's own signature moves it `draft → submitted`, and the signature that reaches N moves it
+`submitted → signed`. `report_not_submitted` (409) is what an approver gets if they try to sign
+before the author.
+
+Every report carries `approvals_required`, `approvals_remaining` and the `signatures` collected on its
+**current** revision. `approvals_remaining` is derived on each read from those signatures, so a client
+never has to reimplement the completion rule. A report waiting for approval is therefore rendered
+from the report alone — "2 of 3 signed, 1 more needed" — and the query a worklist needs is:
+
+```sql
+-- reports awaiting my signature, in my tenant
+select r.id
+  from report r
+ where r.state = 'submitted'
+   and r.author_id <> $me
+   and not exists (
+     select 1 from signature s
+       join report_revision rv on rv.id = s.revision_id
+      where s.report_id = r.id
+        and s.actor_id = $me
+        and rv.revision = (select max(revision) from report_revision where report_id = r.id)
+   );
+```
+
+That predicate is stated here rather than implemented as an endpoint: a list route needs a
+pagination and filter contract nobody has decided, and P1 has not yet said whether the worklist view
+is this phase or the next.
 
 Errors are RFC 9457 problem details. Branch on `code`; `title` and `detail` are for humans and may be
 reworded. `detail` never echoes a field value — a validation failure names the JSON path and the rule
@@ -52,6 +79,7 @@ diffed in CI. It cannot describe an endpoint that does not exist, or miss one th
 | A signature attests a real revision | signs `report.current_hash` after comparing it to the latest revision | `signature_attests_revision` |
 | A signed report has evidence | writes both rows in one transaction | `report_signed_requires_evidence` (deferred) — since 0004 it also demands the signature *count* reach `approvals_required`, with at least one non-author among them |
 | One signature per person per revision | refuses a duplicate signer before writing | `signature_one_per_person_per_revision` |
+| An author cannot lower their own bar | refuses `approvals_required > 1` without `clinical_lead` | `check (approvals_required between 1 and 5)` — the range, not the authority |
 | A signature says only what it may | resolves `author`/`approver`/`delegate` from who is signing | `signature_role_is_honest` — only the author signs as `author`, nobody countersigns their own report, a delegate names whom it covers |
 | No lost update on autosave | `If-Match` compared to `current_hash` | `report_hash_tracks_revision` (deferred) |
 | The trail cannot be edited | appends only | append-only trigger + no UPDATE grant + chain check |
@@ -63,11 +91,13 @@ still true after somebody refactors the service. The contract test writes the fo
 
 ## What is absent, and why
 
-- **Approval policy.** `approvals_required` is taken from the caller on create (1–5). Nothing derives
-  it from the service, the template or the study's urgency — ADR-0007's own revisit trigger — and
-  nothing stops an author who needs three signatures from asking for one. Until that resolver exists
-  the number is a client decision, and it is the one thing in this slice that is a governance
-  affordance rather than an enforcement.
+- **An approval *policy*.** `approvals_required` is still not derived from the service, the template or
+  the study's urgency — ADR-0007's revisit trigger. What exists instead is a named authority: only a
+  `clinical_lead` may ask for more than one signature, and the value is written into the
+  `report.created` event so the trail shows what the report was asked to be. That closes the "author
+  asks for 1 and self-completes" hole without inventing a policy model, but the role name itself is a
+  placeholder — it is what E9's IdP role groups will populate, and the resolver will remove the need
+  for it.
 - **Delegation with an expiry.** `on_behalf_of` records who a delegate covered for. It does not record
   who granted the cover or when it lapses, so cross-cover is an assertion by the signer. A
   `delegation` table is the honest next step and ADR-0007 says so.

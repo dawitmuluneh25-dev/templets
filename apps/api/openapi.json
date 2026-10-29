@@ -102,6 +102,11 @@
                       "minimum": 1,
                       "maximum": 5
                     },
+                    "approvals_remaining": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 5
+                    },
                     "signatures": {
                       "type": "array",
                       "items": {
@@ -201,6 +206,7 @@
                     "template_version_id",
                     "revision",
                     "approvals_required",
+                    "approvals_remaining",
                     "signatures",
                     "document",
                     "field_values",
@@ -349,6 +355,11 @@
                       "minimum": 1,
                       "maximum": 5
                     },
+                    "approvals_remaining": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 5
+                    },
                     "signatures": {
                       "type": "array",
                       "items": {
@@ -448,6 +459,7 @@
                     "template_version_id",
                     "revision",
                     "approvals_required",
+                    "approvals_remaining",
                     "signatures",
                     "document",
                     "field_values",
@@ -633,6 +645,11 @@
                       "minimum": 1,
                       "maximum": 5
                     },
+                    "approvals_remaining": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 5
+                    },
                     "signatures": {
                       "type": "array",
                       "items": {
@@ -732,6 +749,7 @@
                     "template_version_id",
                     "revision",
                     "approvals_required",
+                    "approvals_remaining",
                     "signatures",
                     "document",
                     "field_values",
@@ -913,6 +931,11 @@
                       "minimum": 1,
                       "maximum": 5
                     },
+                    "approvals_remaining": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 5
+                    },
                     "signatures": {
                       "type": "array",
                       "items": {
@@ -1012,6 +1035,7 @@
                     "template_version_id",
                     "revision",
                     "approvals_required",
+                    "approvals_remaining",
                     "signatures",
                     "document",
                     "field_values",
