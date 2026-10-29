@@ -122,9 +122,59 @@ still true after somebody refactors the service. The contract test writes the fo
 - **Clinical validation before signing.** `@reporting/validation` defines the tiers; the rules need a
   filled report to be written against, which is the editor's job (step 9). Signing currently requires
   a revision, not a good one.
-- **Template import.** `template` and `template_version` are seeded by tests. The corpus importer
-  produces the artefacts; wiring them into rows is a separate, reviewable change.
-- **Delivery, export, dictation, EHR/PACS.** Step 10.
+- **Template *authoring*.** Templates arrive by import (below). Creating or editing one in the product
+  is the library's job and is not built.
+- **Vendor-certified integration.** The adapters exist and their mapping is tested; none has been run
+  against a vendor sandbox, because there is not one yet (E5). What is proven is that a second vendor
+  is a new file behind the same two interfaces, not a change to the domain.
+- **Automatic delivery retry.** A failed delivery is recorded and can be retried by asking again; there
+  is no scheduler, so nothing retries on its own.
+- **Export, dictation, PDF.** Step 10 and later.
+
+## Template import
+
+`template` and `template_version` are populated from the committed corpus artefact, not seeded by hand.
+
+```bash
+pnpm --filter @reporting/api import-templates -- --org <uuid> --dry-run   # what would happen
+pnpm --filter @reporting/api import-templates -- --org <uuid>            # do it
+```
+
+427 templates and 427 versions, or a refusal. The rules:
+
+- **The artefact is validated, not trusted.** zod for shape, then each entry must reproduce its own
+  body from its own token stream and match the `char_count` the export recorded. The body that gets
+  stored is the reconstructed one, so a stored template cannot render differently from the tokens a
+  report was authored against.
+- **Identity is `external_id`, not the name.** 427 files share 327 labels (0006). Two templates may
+  legitimately both be called "CT Abdomen".
+- **Re-running is a no-op.** Version identity is the content hash; the same artefact twice adds
+  nothing, and changed text adds version 2 rather than rewriting version 1.
+- **Rejections are reported, not fatal.** One bad entry does not withhold the other 426, and the exit
+  code is `2` so CI cannot read a partial import as a clean one. `0` imported everything, `1` wrote
+  nothing.
+- **Licensing is not checked** — the templates are the customer's property (ADR-0009). Provenance is
+  recorded on the row and in `corpus/provenance.json`.
+
+## Integration
+
+`src/integration/` is the seam to the systems either side. Two ports — `ContextSource` (patient and
+study context) and `ReportSink` (where a signed report goes) — with FHIR R4 implementations of both,
+and a registry that builds them from configuration. Nothing in `src/domain/` imports from
+`src/integration/adapters/`, and no vendor type appears in a contract.
+
+Two behaviours worth knowing:
+
+- **Unconfigured is not silent.** With no endpoint set, the adapter throws
+  `IntegrationNotConfiguredError` naming the capability. The API starts without a hospital behind it
+  and refuses to pretend a delivery happened.
+- **Delivery is a state machine with a derived key.** `delivery` (0007) holds one attempt series per
+  report and target; the key is `sha256(report id, content hash, target)`, so a retry after a timeout
+  cannot produce a second report downstream, while two reports that read identically stay distinct.
+
+Configure with `INTEGRATION_EHR_BASE_URL`, `INTEGRATION_EHR_ADAPTER` (default `fhir-r4`),
+`INTEGRATION_EHR_TOKEN`, and the same three with an `INTEGRATION_PACS_` or
+`INTEGRATION_REPORT_SINK_` prefix. Nothing is configured out of the box.
 
 ## Tests
 

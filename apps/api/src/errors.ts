@@ -24,6 +24,8 @@ export type ProblemCode =
   | 'report_not_submitted'
   | 'already_signed'
   | 'no_active_delegation'
+  | 'report_not_signed'
+  | 'delivery_failed'
   | 'revision_mismatch'
   | 'precondition_required'
   | 'precondition_failed'
@@ -43,6 +45,8 @@ const TITLES: Readonly<Record<ProblemCode, string>> = {
   report_not_submitted: 'Report has not been submitted for approval',
   already_signed: 'This revision already carries your signature',
   no_active_delegation: 'No cover is in force for this signature',
+  report_not_signed: 'Only a signed report can be delivered',
+  delivery_failed: 'Delivery to the external system failed',
   revision_mismatch: 'Report content does not match its latest revision',
   precondition_required: 'If-Match header required',
   precondition_failed: 'If-Match does not match the current hash',
@@ -94,6 +98,8 @@ export const problems = {
     ),
   alreadySigned: (detail: string) => new ApiError('already_signed', 409, detail),
   noActiveDelegation: (detail: string) => new ApiError('no_active_delegation', 409, detail),
+  reportNotSigned: (detail: string) => new ApiError('report_not_signed', 409, detail),
+  deliveryFailed: (detail: string) => new ApiError('delivery_failed', 502, detail),
   revisionMismatch: (detail: string) => new ApiError('revision_mismatch', 409, detail),
   preconditionRequired: () =>
     new ApiError('precondition_required', 428, "Send If-Match with the report's current_hash."),
