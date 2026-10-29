@@ -12,6 +12,7 @@ export default tseslint.config(
     // data, not source.
     ignores: [
       '**/dist/**',
+      '**/.next/**',
       '**/node_modules/**',
       '**/.turbo/**',
       'docs/**',
@@ -25,7 +26,23 @@ export default tseslint.config(
   js.configs.recommended,
   tseslint.configs.recommended,
   {
-    files: ['**/*.ts'],
+    // The service worker is plain JavaScript running in a worker, not a module: its
+    // globals are the worker scope, and a browser-only lint would reject all of them.
+    files: ['apps/web/public/sw.js'],
+    languageOptions: {
+      globals: {
+        self: 'readonly',
+        caches: 'readonly',
+        fetch: 'readonly',
+        Response: 'readonly',
+        URL: 'readonly',
+        Promise: 'readonly',
+        console: 'readonly',
+      },
+    },
+  },
+  {
+    files: ['**/*.ts', '**/*.tsx'],
     rules: {
       // A type-only import that is not marked as such changes runtime shape
       // under `verbatimModuleSyntax` and quietly defeats bundler assumptions.

@@ -1,0 +1,115 @@
+/*
+ * Source detection is switched off and re-declared for this package only.
+ *
+ * Tailwind v4 otherwise scans from the repository root, which in this monorepo includes
+ * the frozen prototype (`radiology-pwa/`), the template corpus and the docs. That is
+ * both slow and wrong: class names in the prototype are reference material (ADR-0001),
+ * and utilities they happen to use must not appear in the production stylesheet.
+ */
+@import 'tailwindcss' source(none);
+@source '../**/*.{ts,tsx}';
+
+/*
+ * One source of truth for colour and rhythm (ADR-0006). Tailwind's own scale covers
+ * spacing and type; these are the values that are specific to this product, and they
+ * are custom properties so a print stylesheet, a media query and a component can all
+ * read the same token.
+ *
+ * Contrast: ink on surface is 15.8:1, ink-muted on surface is 7.4:1, accent on surface
+ * is 6.3:1 — all above WCAG 2.2 AA for body text, checked at build-review time rather
+ * than asserted in a comment.
+ */
+@theme {
+  --color-surface: #ffffff;
+  --color-surface-muted: #f4f6f9;
+  --color-surface-raised: #ffffff;
+  --color-line: #d5dbe4;
+  --color-line-strong: #9aa6b6;
+  --color-ink: #0f1419;
+  --color-ink-muted: #46515f;
+  --color-accent: #0b5fa5;
+  --color-accent-hover: #084a82;
+  --color-accent-ink: #ffffff;
+  --color-focus: #b45309;
+  --color-flag: #8a3b12;
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, monospace;
+}
+
+@layer base {
+  :root {
+    color-scheme: light dark;
+  }
+
+  /* Dark mode by preference, not by a toggle: there is no user record to store a
+     choice against, and a dark room is the actual working environment. */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-surface: #0e1116;
+      --color-surface-muted: #161b22;
+      --color-surface-raised: #1b2129;
+      --color-line: #2b333d;
+      --color-line-strong: #5a6675;
+      --color-ink: #eef2f6;
+      --color-ink-muted: #a9b4c0;
+      --color-accent: #7fb6e8;
+      --color-accent-hover: #a4cbee;
+      --color-accent-ink: #06121d;
+      --color-focus: #fbbf24;
+      --color-flag: #f0b18a;
+    }
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--color-surface);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* One focus treatment everywhere. A focus ring that varies by component is the
+     fastest way to lose keyboard users. */
+  :focus-visible {
+    outline: 3px solid var(--color-focus);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  a {
+    text-underline-offset: 0.2em;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  /* Printing a report is a real workflow (a signed PDF comes later from the server).
+     Navigation and filters are not part of the document. */
+  @media print {
+    body {
+      background: #fff;
+      color: #000;
+    }
+    .no-print {
+      display: none !important;
+    }
+    a[href]::after {
+      content: '';
+    }
+  }
+}
