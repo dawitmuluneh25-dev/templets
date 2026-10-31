@@ -49,7 +49,7 @@ they were decided before any code.
 | E4 | Licence review **started** with an owner and a date | **Not met** | Blocks customer shipment, not building. See §4 |
 | E5 | Deployment vendor shortlist + BAA path | **Not met** | Needed by P4, but the choice constrains P1 infrastructure scaffolding |
 | E6 | Toolchain available on the build machine | **Met** | Node 22.23.2, pnpm 12.16.1 via corepack, PostgreSQL 16.15 natively (Docker absent, and not required by the chosen profile) |
-| E7 | Branch protection on `main` + PR template | **Partial** | PR template, commitlint and the CI workflow are committed; branch protection needs a remote, and CI has never run |
+| E7 | Branch protection on `main` + PR template | **Partial** | PR template, commitlint and the CI workflow are committed, and `origin` is configured with both branches pushed; the protection rule is not applied and `ci.yml` has not yet run — it fires on `pull_request`, and none is open |
 | E8 | One named clinical champion with protected time | **Not met** | Needed by P3, worth naming now |
 | E9 | IdP capability confirmed (role groups + step-up) | **Not met** | Needed by P3 |
 
