@@ -197,9 +197,11 @@ describe.skipIf(!enabled)('delivery state machine', () => {
       'Delivery Test Radiology',
     ]);
 
+    // A clinical lead, because a tenant cannot hold a report until it has an approval
+    // rule and only a clinical lead may write one (ADR-0010).
     const user = await owner.query<{ id: string }>(
       `insert into app_user (org_id, idp_subject, display_name, roles)
-       values ($1, 'deliverer', 'Dr Deliverer', '{radiologist}') returning id`,
+       values ($1, 'deliverer', 'Dr Deliverer', '{radiologist,clinical_lead}') returning id`,
       [ORG],
     );
 
@@ -227,6 +229,12 @@ describe.skipIf(!enabled)('delivery state machine', () => {
         'IMPRESSION:\nNo acute abnormality.',
         JSON.stringify(document),
       ],
+    );
+
+    await owner.query(
+      `insert into approval_policy (org_id, approvals_required, rationale, created_by_user_id)
+       values ($1, 1, 'Delivery fixture: solo sign.', $2)`,
+      [ORG, user.rows[0]?.id ?? ''],
     );
 
     await owner.query('commit');

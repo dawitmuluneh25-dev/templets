@@ -90,9 +90,19 @@ describe.skipIf(!enabled)('template import', () => {
     await owner.query('insert into org (id, name) values ($1, $2)', [ORG, 'Import Test Radiology']);
     const user = await owner.query<{ id: string }>(
       `insert into app_user (org_id, idp_subject, display_name, roles)
-       values ($1, 'importer', 'Import Test', '{radiologist}') returning id`,
+       values ($1, 'importer', 'Import Test', '{radiologist,clinical_lead}') returning id`,
       [ORG],
     );
+
+    // A tenant cannot author a report until it has a rule saying how many signatures one
+    // needs, and only a clinical lead may write that rule (ADR-0010). Seeded here because
+    // this suite is about the import; who decides is `approval-policy.test.ts`.
+    await owner.query(
+      `insert into approval_policy (org_id, approvals_required, rationale, created_by_user_id)
+       values ($1, 1, 'Import fixture: solo sign until the department says otherwise.', $2)`,
+      [ORG, user.rows[0]?.id ?? ''],
+    );
+
     await owner.query('commit');
 
     actor = {

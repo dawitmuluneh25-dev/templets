@@ -59,6 +59,9 @@ describe.skipIf(!enabled)('report vertical slice', () => {
   let approver: Actor;
   let cover: Actor;
   let versionId: string;
+  let twoVersionId: string;
+  let threeVersionId: string;
+  let twoPolicyId: string;
   let otherReportId: string;
   const stepUp = new TestOnlyFixedTokenStepUp(STEP_UP_TOKEN);
 
@@ -66,8 +69,22 @@ describe.skipIf(!enabled)('report vertical slice', () => {
     return { pool, stepUp };
   }
 
-  /** Seeds one tenant's user, template and pinned version. */
-  async function seedTenant(orgId: string, label: string): Promise<{ versionId: string }> {
+  /**
+   * Seeds one tenant: its people, three templates, and the rules those templates resolve
+   * to. The rules are seeded rather than assumed because since ADR-0010 a report cannot be
+   * created without one — a tenant with templates and no policy is a tenant that cannot
+   * write reports, which is a state worth having a migration for rather than a default.
+   */
+  async function seedTenant(
+    orgId: string,
+    label: string,
+  ): Promise<{
+    versionId: string;
+    twoVersionId: string;
+    threeVersionId: string;
+    defaultPolicyId: string;
+    twoPolicyId: string;
+  }> {
     await owner.query('begin');
     await owner.query("select set_config('app.org_id', $1, true)", [orgId]);
     await owner.query('insert into org (id, name) values ($1, $2)', [orgId, `Radiology ${label}`]);
@@ -75,8 +92,8 @@ describe.skipIf(!enabled)('report vertical slice', () => {
     // can be covered by. Cross-cover needs a real third identity to point at.
     for (const suffix of ['', '-2', '-3']) {
       // The author also holds the approval authority: in a small group the people who
-      // decide a report needs two signatures are the people who write them. `approver`
-      // and `cover` deliberately do not, so the refusal below has a real subject.
+      // decide how many signatures a report needs are the people who write them.
+      // `approver` and `cover` deliberately do not, so the refusals have a real subject.
       const roles = suffix === '' ? ['radiologist', APPROVAL_AUTHORITY_ROLE] : ['radiologist'];
 
       await owner.query(
@@ -85,32 +102,82 @@ describe.skipIf(!enabled)('report vertical slice', () => {
       );
     }
 
+    const author = await owner.query<{ id: string }>(
+      'select id from app_user where idp_subject = $1',
+      [`subject-${label}`],
+    );
+    const authorId = author.rows[0]?.id ?? '';
+
     const parsed = parse(BODY);
     const document: TokenDocument = { schema_version: 1, tokens: parsed.tokens };
 
-    const template = await owner.query<{ id: string }>(
-      `insert into template (org_id, name, scope, modality, type, provenance)
-       values ($1, $2, 'AlemHealth', 'XR', 'FREE_TEXT', $3) returning id`,
-      [orgId, `XR Chest ${label}`, JSON.stringify({ class: 'unknown' })],
-    );
+    /** One template and its pinned version. Same body every time; only the identity differs. */
+    async function addVersion(name: string): Promise<{ templateId: string; versionId: string }> {
+      const template = await owner.query<{ id: string }>(
+        `insert into template (org_id, name, scope, modality, type, provenance)
+         values ($1, $2, 'AlemHealth', 'XR', 'FREE_TEXT', $3) returning id`,
+        [orgId, `${name} ${label}`, JSON.stringify({ class: 'unknown' })],
+      );
+      const templateId = template.rows[0]?.id ?? '';
 
-    const version = await owner.query<{ id: string }>(
-      `insert into template_version
-         (org_id, template_id, version, body, token_stream, fields, content_hash)
-       values ($1, $2, 1, $3, $4, $5, $6) returning id`,
-      [
-        orgId,
-        template.rows[0]?.id ?? '',
-        BODY,
-        JSON.stringify(document),
-        JSON.stringify(parsed.fields),
-        contentHash(document),
-      ],
-    );
+      const version = await owner.query<{ id: string }>(
+        `insert into template_version
+           (org_id, template_id, version, body, token_stream, fields, content_hash)
+         values ($1, $2, 1, $3, $4, $5, $6) returning id`,
+        [
+          orgId,
+          templateId,
+          BODY,
+          JSON.stringify(document),
+          JSON.stringify(parsed.fields),
+          contentHash(document),
+        ],
+      );
+
+      return { templateId, versionId: version.rows[0]?.id ?? '' };
+    }
+
+    /** A rule, written the way the API writes one: by a clinical lead, with a reason. */
+    async function addPolicy(
+      key: { readonly templateId?: string },
+      approvalsRequired: number,
+    ): Promise<string> {
+      const policy = await owner.query<{ id: string }>(
+        `insert into approval_policy
+           (org_id, template_id, approvals_required, rationale, created_by_user_id)
+         values ($1, $2, $3, $4, $5) returning id`,
+        [
+          orgId,
+          key.templateId ?? null,
+          approvalsRequired,
+          'Seeded for the vertical slice.',
+          authorId,
+        ],
+      );
+
+      return policy.rows[0]?.id ?? '';
+    }
+
+    // The organisation default. Everything without a rule of its own resolves here, which
+    // is the difference between a fallback and a rule: this one is a row somebody wrote.
+    const defaultPolicyId = await addPolicy({}, 1);
+
+    const solo = await addVersion('XR Chest');
+    const two = await addVersion('CT Head');
+    const three = await addVersion('MRI Spine');
+
+    const twoPolicyId = await addPolicy({ templateId: two.templateId }, 2);
+    await addPolicy({ templateId: three.templateId }, 3);
 
     await owner.query('commit');
 
-    return { versionId: version.rows[0]?.id ?? '' };
+    return {
+      versionId: solo.versionId,
+      twoVersionId: two.versionId,
+      threeVersionId: three.versionId,
+      defaultPolicyId,
+      twoPolicyId,
+    };
   }
 
   beforeAll(async () => {
@@ -120,7 +187,11 @@ describe.skipIf(!enabled)('report vertical slice', () => {
 
     owner = new pg.Client({ connectionString: ownerUrl });
     await owner.connect();
-    versionId = (await seedTenant(ORG, 'A')).versionId;
+    const seeded = await seedTenant(ORG, 'A');
+    versionId = seeded.versionId;
+    twoVersionId = seeded.twoVersionId;
+    threeVersionId = seeded.threeVersionId;
+    twoPolicyId = seeded.twoPolicyId;
 
     // A second tenant, with one report of its own, to prove the slice cannot reach
     // it even holding a valid id.
@@ -137,13 +208,15 @@ describe.skipIf(!enabled)('report vertical slice', () => {
       [OTHER_ORG],
     );
     const otherReport = await owner.query<{ id: string }>(
-      `insert into report (org_id, study_id, template_version_id, author_id, current_hash)
-       values ($1, $2, $3, $4, 'sha256:other-tenant') returning id`,
+      `insert into report (org_id, study_id, template_version_id, author_id, current_hash,
+                           approval_policy_id)
+       values ($1, $2, $3, $4, 'sha256:other-tenant', $5) returning id`,
       [
         OTHER_ORG,
         otherStudy.rows[0]?.id ?? '',
         otherVersion.versionId,
         otherUser.rows[0]?.id ?? '',
+        otherVersion.defaultPolicyId,
       ],
     );
     otherReportId = otherReport.rows[0]?.id ?? '';
@@ -421,13 +494,13 @@ describe.skipIf(!enabled)('report vertical slice', () => {
    * author's is one of them.
    */
   describe('multi-signature approval', () => {
+    /** A report on the template whose policy says two. The number is not passed in. */
     async function twoSignatureReport(): Promise<{ id: string; currentHash: string }> {
       const report = await createReport(deps(), {
         actor,
-        templateVersionId: versionId,
+        templateVersionId: twoVersionId,
         studyInstanceUid: `1.2.840.${randomUUID()}`,
         modality: 'XR',
-        approvalsRequired: 2,
       });
 
       return { id: report.id, currentHash: report.current_hash };
@@ -766,10 +839,9 @@ describe.skipIf(!enabled)('report vertical slice', () => {
     it('records a countersignature that does not yet complete a three-way approval', async () => {
       const report = await createReport(deps(), {
         actor,
-        templateVersionId: versionId,
+        templateVersionId: threeVersionId,
         studyInstanceUid: `1.2.840.${randomUUID()}`,
         modality: 'XR',
-        approvalsRequired: 3,
       });
 
       const submitted = await signReport(deps(), {
@@ -866,22 +938,24 @@ describe.skipIf(!enabled)('report vertical slice', () => {
     });
 
     /**
-     * The requirement is a governance decision, and it was a free field on the create
-     * body until the gate below existed: an author whose service requires two signatures
-     * could ask for one and complete the report alone, while every database constraint
-     * still held. The gate is not a policy engine — it names who may decide, until the
-     * per-service resolver in ADR-0007's revisit triggers exists.
+     * The bar is a rule, not a field on the request (ADR-0010). It used to be a free field
+     * gated by a role, which answered "may this person decide" and recorded nothing about
+     * what was decided. Now the create body has nowhere to put a number at all: the only
+     * way to change what a report requires is to write a rule, which is tenant-scoped,
+     * audited, and the same for everybody.
      */
-    it('refuses to require more than one signature without the approval authority', async () => {
-      await expect(
-        createReport(deps(), {
-          actor: cover,
-          templateVersionId: versionId,
-          studyInstanceUid: `1.2.840.${randomUUID()}`,
-          modality: 'XR',
-          approvalsRequired: 2,
-        }),
-      ).rejects.toMatchObject({ code: 'forbidden' });
+    it('takes the requirement from the tenant’s rules, not from the caller', async () => {
+      const report = await createReport(deps(), {
+        // No approval authority. That no longer matters for creating: it matters for
+        // writing the rule, which is the endpoint in `approval-policy.test.ts`.
+        actor: cover,
+        templateVersionId: twoVersionId,
+        studyInstanceUid: `1.2.840.${randomUUID()}`,
+        modality: 'XR',
+      });
+
+      expect(report.approvals_required).toBe(2);
+      expect(report.approvals_remaining).toBe(2);
     });
 
     it('still lets anyone create a solo-sign report', async () => {
@@ -900,29 +974,20 @@ describe.skipIf(!enabled)('report vertical slice', () => {
       const report = await twoSignatureReport();
 
       const meta = await withTenant(pool, { orgId: ORG }, async (tx) => {
-        const rows = await tx.query<{ meta: { approvals_required?: number } }>(
-          "select meta from audit_event where subject_id = $1 and action = 'report.created'",
-          [report.id],
-        );
+        const rows = await tx.query<{
+          meta: { approvals_required?: number; approval_policy_id?: string };
+        }>("select meta from audit_event where subject_id = $1 and action = 'report.created'", [
+          report.id,
+        ]);
 
         return rows.rows[0]?.meta;
       });
 
       // Evidence, not configuration: a later policy change must not be readable back
-      // onto a report that was signed under the old one.
+      // onto a report that was signed under the old one. The policy id is the rest of the
+      // answer — not just "two signatures" but the rule that said two.
       expect(meta?.approvals_required).toBe(2);
-    });
-
-    it('rejects an approval count outside the column’s range as a request error', async () => {
-      await expect(
-        createReport(deps(), {
-          actor,
-          templateVersionId: versionId,
-          studyInstanceUid: `1.2.840.${randomUUID()}`,
-          modality: 'XR',
-          approvalsRequired: 6,
-        }),
-      ).rejects.toMatchObject({ code: 'invalid_request' });
+      expect(meta?.approval_policy_id).toBe(twoPolicyId);
     });
   });
 });

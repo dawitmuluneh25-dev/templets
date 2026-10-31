@@ -4,8 +4,8 @@ The sign-off artefact for leaving discovery. Everything here is either ratified 
 open with a named owner, or explicitly deferred with the phase that will decide it.
 
 **Status:** 4 of 9 P1 entry conditions met, 1 partial. The one that still gates any claim about
-this build: branch protection (E7) — the repository is local-only, so the CI committed on
-2026-10-29 has never actually run.
+this build: branch protection (E7) — CI has now run on a pull request and passed both jobs, so the
+build is no longer green on one machine only, but nothing yet makes a red run block a merge.
 
 **Baseline:** `main @ 58ae638` — 463 files, prototype 427/427 round-trip, working tree clean.
 
@@ -49,7 +49,7 @@ they were decided before any code.
 | E4 | Licence review **started** with an owner and a date | **Not met** | Blocks customer shipment, not building. See §4 |
 | E5 | Deployment vendor shortlist + BAA path | **Not met** | Needed by P4, but the choice constrains P1 infrastructure scaffolding |
 | E6 | Toolchain available on the build machine | **Met** | Node 22.23.2, pnpm 12.16.1 via corepack, PostgreSQL 16.15 natively (Docker absent, and not required by the chosen profile) |
-| E7 | Branch protection on `main` + PR template | **Partial** | PR template, commitlint and the CI workflow are committed, and `origin` is configured with both branches pushed; the protection rule is not applied and `ci.yml` has not yet run — it fires on `pull_request`, and none is open |
+| E7 | Branch protection on `main` + PR template | **Partial** | PR template, commitlint and the CI workflow are committed; `origin` is configured, PR #1 merged, and `ci.yml` runs green on pull requests (122 tests on its first passing run). The protection rule is not applied, so a direct push to `main` still lands unchecked |
 | E8 | One named clinical champion with protected time | **Not met** | Needed by P3, worth naming now |
 | E9 | IdP capability confirmed (role groups + step-up) | **Not met** | Needed by P3 |
 

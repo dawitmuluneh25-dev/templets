@@ -23,6 +23,7 @@ export type ProblemCode =
   | 'report_already_signed'
   | 'report_not_submitted'
   | 'already_signed'
+  | 'no_approval_policy'
   | 'no_active_delegation'
   | 'report_not_signed'
   | 'delivery_failed'
@@ -44,6 +45,7 @@ const TITLES: Readonly<Record<ProblemCode, string>> = {
   report_already_signed: 'Report is already signed',
   report_not_submitted: 'Report has not been submitted for approval',
   already_signed: 'This revision already carries your signature',
+  no_approval_policy: 'No approval policy covers this report',
   no_active_delegation: 'No cover is in force for this signature',
   report_not_signed: 'Only a signed report can be delivered',
   delivery_failed: 'Delivery to the external system failed',
@@ -97,6 +99,7 @@ export const problems = {
       'The author must sign this report before anyone can approve it.',
     ),
   alreadySigned: (detail: string) => new ApiError('already_signed', 409, detail),
+  noApprovalPolicy: (detail: string) => new ApiError('no_approval_policy', 409, detail),
   noActiveDelegation: (detail: string) => new ApiError('no_active_delegation', 409, detail),
   reportNotSigned: (detail: string) => new ApiError('report_not_signed', 409, detail),
   deliveryFailed: (detail: string) => new ApiError('delivery_failed', 502, detail),

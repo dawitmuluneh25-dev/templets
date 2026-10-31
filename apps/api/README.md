@@ -19,8 +19,10 @@ pnpm --filter @reporting/api start
 work and would quietly make every policy irrelevant, so the connection string is named after the role
 it should be.
 
-Signing will return `503 step_up_unavailable` on a fresh checkout, and every request will be `401`
-unless identity is configured. That is deliberate — see *What is absent* below.
+Signing will return `503 step_up_unavailable` on a fresh checkout, every request will be `401` unless
+identity is configured, and creating a report will return `409 no_approval_policy` until somebody
+writes a rule saying how many signatures one needs. All three are deliberate — see *What is absent*
+below.
 
 ## Endpoints
 
@@ -31,10 +33,21 @@ unless identity is configured. That is deliberate — see *What is absent* below
 | `PUT` | `/v1/reports/:id/draft` | required | next `report_revision`, `report.current_hash`, `report.draft_saved` |
 | `POST` | `/v1/reports/:id/sign` | required | `signature`; `report.state='submitted'` with `report.submitted`/`report.countersigned`, or `'signed'` with `report.signed` when the count is reached |
 | `POST` | `/v1/delegations` | — | `delegation`, `delegation.granted` |
+| `POST` | `/v1/approval-policies` | — | `approval_policy`, `approval_policy.set` |
+| `GET` | `/v1/approval-policies` | — | nothing |
 
-`POST /v1/reports` takes `approvals_required` (1–5, default 1). **Anything above 1 requires the
-`clinical_lead` role** — otherwise `403 forbidden`. The requirement is a governance decision, and
-setting it is the only place in this slice where that decision is made. `POST …/sign` takes
+`POST /v1/reports` **does not take `approvals_required`.** The number is resolved from the tenant's
+rules, inside the creating transaction, and copied onto the report along with the id of the rule it
+came from (ADR-0010). A body that sends the field is rejected — the schema is strict, because
+silently ignoring it would leave the caller believing it had worked. Resolution order is: the rule
+about this template, then the rule about this modality, then the organisation default, newest row
+first within each. **No matching rule is `409 no_approval_policy`, not a default of 1.** `POST
+/v1/approval-policies` is how a rule is written — `template_id` and `modality` are both optional
+(both absent is the organisation default), `rationale` is required, and the caller must be a
+`clinical_lead` or receive `403 forbidden`. Rules are append-only: changing one writes a new row and
+leaves the old one in the table.
+
+`POST …/sign` takes
 `on_behalf_of`, which is only meaningful for someone who is not the author and makes the signature a
 `delegate` covering for that user — **and only if a grant from that user to the signer is in force**,
 otherwise `409 no_active_delegation`. `POST /v1/delegations` creates that grant: you may lend your own
@@ -84,7 +97,7 @@ diffed in CI. It cannot describe an endpoint that does not exist, or miss one th
 | A signature attests a real revision | signs `report.current_hash` after comparing it to the latest revision | `signature_attests_revision` |
 | A signed report has evidence | writes both rows in one transaction | `report_signed_requires_evidence` (deferred) — since 0004 it also demands the signature *count* reach `approvals_required`, with at least one non-author among them |
 | One signature per person per revision | refuses a duplicate signer before writing | `signature_one_per_person_per_revision` |
-| An author cannot lower their own bar | refuses `approvals_required > 1` without `clinical_lead` | `check (approvals_required between 1 and 5)` — the range, not the authority |
+| A report's bar comes from a rule, not from the caller | resolves the narrowest matching `approval_policy` inside the creating transaction, or refuses with `409 no_approval_policy`; only a `clinical_lead` may write a rule | `report_cites_an_approval_policy` — a report with no policy id is refused, and so is one whose number the cited rule does not state; `approval_policy_is_authorised` — only a clinical lead's rules are accepted |
 | A signature says only what it may | resolves `author`/`approver`/`delegate` from who is signing | `signature_role_is_honest` — only the author signs as `author`, nobody countersigns their own report, a delegate names whom it covers |
 | Cross-cover is authority, not a claim | resolves a live grant before writing, else `409 no_active_delegation` | `signature_role_is_honest` — the cited grant must be this signer's, for the person named, and span `signed_at` |
 | Only the person lending, or a clinical lead, may lend | refuses anyone else before writing | `delegation_is_authorised` |
@@ -99,13 +112,14 @@ still true after somebody refactors the service. The contract test writes the fo
 
 ## What is absent, and why
 
-- **An approval *policy*.** `approvals_required` is still not derived from the service, the template or
-  the study's urgency — ADR-0007's revisit trigger. What exists instead is a named authority: only a
-  `clinical_lead` may ask for more than one signature, and the value is written into the
-  `report.created` event so the trail shows what the report was asked to be. That closes the "author
-  asks for 1 and self-completes" hole without inventing a policy model, but the role name itself is a
-  placeholder — it is what E9's IdP role groups will populate, and the resolver will remove the need
-  for it.
+- **Urgency as a rule dimension.** Rules match on template and modality (ADR-0010). ADR-0007 also
+  anticipated urgency, and a study in this schema carries none, so a STAT report cannot yet be barred
+  differently from a routine one. The axis is one nullable column and one line in the resolution
+  order on the day a study carries one.
+- **A per-report exception.** A rule is the only way to set the bar. A department that needs one
+  report to depart from its rule has to change the rule and change it back — which is the honest
+  state, not an oversight: an exception is a decision with a reason, and a field that overrides the
+  rule for a single report leaves no trace of why.
 - **Revoking a grant early.** A delegation is append-only and its window is the only way it stops
   being valid; there is no `ended_at` and no delete. Correcting a mistaken grant means waiting it out
   or issuing one that is narrower, which is acceptable while grants are days long and not acceptable
@@ -115,7 +129,10 @@ still true after somebody refactors the service. The contract test writes the fo
   approver UI will want to show it.
 - **Sequential approval.** N-of-M is parallel by construction. Author → attending → department head
   needs per-report stage state and an escalation owner, and is deliberately not approximated.
-- **Identity (E9) and step-up.** `Authenticator` and `StepUpVerifier` are interfaces with a
+- **Identity (E9) and step-up.** `clinical_lead` is still a role name no IdP supplies, so whoever
+  creates users is, today, deciding who may set the bar on signatures. That is why the check guards
+  a durable rule rather than a keystroke: rules written under the placeholder keep their meaning when
+  the real groups arrive. `Authenticator` and `StepUpVerifier` are interfaces with a
   fail-closed default. The only implementations that accept anything are named `HeaderAuthenticator`
   and `TestOnlyFixedTokenStepUp`, and `main.ts` cannot wire the second. A stub password check would
   have made this slice look finished and every signature in it worthless.
