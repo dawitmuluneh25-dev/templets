@@ -104,4 +104,7 @@ Concretely:
 - **Delegation needs to expire or be granted** → a `delegation` table with `from`, `to`, `scope`,
   `expires_at`; `on_behalf_of` then references it instead of a bare user id.
 - **`approvals_required` needs to vary by study urgency** → it becomes a resolver (template + service +
-  urgency) rather than a column, which is a change to the create path only.
+  urgency) rather than a column, which is a change to the create path only. **Actioned by
+  [ADR-0010](0010-approval-policy-is-data.md)** for template and modality; urgency waits for a study
+  that carries one. The column stays, because the number a report was created under is evidence and
+  must not be re-derived later.

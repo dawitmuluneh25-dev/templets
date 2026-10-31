@@ -48,9 +48,11 @@ describe.skipIf(!enabled)('row-level security', () => {
 
     await owner.query('insert into org (id, name) values ($1, $2)', [orgId, `Radiology ${label}`]);
 
+    // Holds the approval authority because a tenant needs a rule before it can hold a
+    // report (ADR-0010), and only a clinical lead may write that rule.
     const user = await owner.query<{ id: string }>(
       'insert into app_user (org_id, idp_subject, display_name, roles) values ($1, $2, $3, $4) returning id',
-      [orgId, `subject-${label}`, `Dr ${label}`, ['radiologist']],
+      [orgId, `subject-${label}`, `Dr ${label}`, ['radiologist', 'clinical_lead']],
     );
     const userId = user.rows[0]?.id ?? '';
 
@@ -79,10 +81,24 @@ describe.skipIf(!enabled)('row-level security', () => {
       [orgId, `1.2.840.${label}`],
     );
 
+    const policy = await owner.query<{ id: string }>(
+      `insert into approval_policy (org_id, approvals_required, rationale, created_by_user_id)
+       values ($1, 1, 'Tenant isolation fixture.', $2) returning id`,
+      [orgId, userId],
+    );
+
     const report = await owner.query<{ id: string }>(
-      `insert into report (org_id, study_id, template_version_id, author_id, current_hash)
-       values ($1, $2, $3, $4, $5) returning id`,
-      [orgId, study.rows[0]?.id ?? '', versionId, userId, `sha256:report-${label}`],
+      `insert into report (org_id, study_id, template_version_id, author_id, current_hash,
+                           approval_policy_id)
+       values ($1, $2, $3, $4, $5, $6) returning id`,
+      [
+        orgId,
+        study.rows[0]?.id ?? '',
+        versionId,
+        userId,
+        `sha256:report-${label}`,
+        policy.rows[0]?.id ?? '',
+      ],
     );
 
     await owner.query('commit');
@@ -156,11 +172,15 @@ describe.skipIf(!enabled)('row-level security', () => {
   it('refuses to insert a row belonging to another tenant', async () => {
     await asOrg(app, ORG_A);
 
+    // Demonstrated on `study` rather than `report`: since ADR-0010 a report insert is
+    // refused by the approval-policy trigger before row-level security is consulted, and
+    // an assertion that passes for the earlier reason would stop being a test of tenancy.
+    // `study` carries no such trigger, so what refuses this row is the policy itself.
     await expect(
       app.query(
-        `insert into report (org_id, study_id, template_version_id, author_id, current_hash)
-         values ($1, (select study_id from report where id = $2), $3, $4, 'sha256:x')`,
-        [ORG_B, a.reportId, a.versionId, a.userId],
+        `insert into study (org_id, study_instance_uid, modality)
+         values ($1, '1.2.840.crossed', 'XR')`,
+        [ORG_B],
       ),
     ).rejects.toThrow(/row-level security|permission denied/i);
   });

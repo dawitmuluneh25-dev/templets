@@ -18,6 +18,15 @@ export {
 } from './domain/report-service.js';
 
 export {
+  createApprovalPolicy,
+  listApprovalPolicies,
+  resolveApprovalPolicy,
+  type ApprovalPolicyServiceDeps,
+  type CreateApprovalPolicyInput,
+  type ResolvedApprovalPolicy,
+} from './domain/approval-policy.js';
+
+export {
   DenyAllAuthenticator,
   HeaderAuthenticator,
   TestOnlyFixedTokenStepUp,

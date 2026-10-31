@@ -6,7 +6,7 @@ import { contentHash, type FieldDescriptor, type TokenDocument } from '@reportin
 
 import { type Actor, type StepUpVerifier } from '../auth.js';
 import { problems } from '../errors.js';
-import { APPROVAL_AUTHORITY_ROLE, holdsApprovalAuthority } from '../roles.js';
+import { resolveApprovalPolicy } from './approval-policy.js';
 import { findLiveDelegation } from './delegation-service.js';
 import { asTokenDocument } from './document.js';
 
@@ -34,11 +34,10 @@ export interface ReportServiceDeps {
 /** A value the API refuses to store: unbounded field values are a storage bug. */
 const MAX_FIELD_VALUE_LENGTH = 20_000;
 
-// The authority behind `approvals_required` and behind lending cover lives in `roles.ts`,
-// so that signing and delegation cannot drift apart on who is allowed to decide.
-
-/** The column is `smallint check (1..5)`; a value outside it must be a 400, not a 500. */
-const MAX_APPROVALS_REQUIRED = 5;
+// The authority behind approving and behind lending cover lives in `roles.ts`, so that
+// signing and delegation cannot drift apart on who is allowed to decide. It no longer
+// guards the create path: how many signatures a report needs is resolved from a policy
+// row (`approval-policy.ts`, ADR-0010), not asked of the caller.
 
 export interface CreateReportInput {
   readonly actor: Actor;
@@ -47,8 +46,9 @@ export interface CreateReportInput {
   readonly accession?: string | undefined;
   readonly modality: string;
   readonly fieldValues?: Readonly<Record<string, string>>;
-  /** 1 = solo sign; N = the author plus N-1 others (D3). */
-  readonly approvalsRequired?: number | undefined;
+  // No `approvalsRequired`. The requirement is resolved from the tenant's approval policy
+  // inside the creating transaction — a caller cannot ask for a lower bar than the rule
+  // says, because a caller cannot ask at all (ADR-0010).
 }
 
 export interface SaveDraftInput {
@@ -85,6 +85,7 @@ interface ReportRow {
 }
 
 interface VersionRow {
+  readonly template_id: string;
   readonly token_stream: unknown;
   readonly fields: readonly FieldDescriptor[];
 }
@@ -94,26 +95,6 @@ export async function createReport(
   input: CreateReportInput,
 ): Promise<ReportResource> {
   const fieldValues = input.fieldValues ?? {};
-  const approvalsRequired = input.approvalsRequired ?? 1;
-
-  // Range first, then authority: telling someone they may not ask for 7 is less useful
-  // than telling them 7 is not a thing. The column is `check (1..5)`, so without this
-  // the constraint violation would surface as a 500 rather than a 400.
-  if (
-    !Number.isInteger(approvalsRequired) ||
-    approvalsRequired < 1 ||
-    approvalsRequired > MAX_APPROVALS_REQUIRED
-  ) {
-    throw problems.invalidRequest(
-      `approvals_required must be a whole number between 1 and ${MAX_APPROVALS_REQUIRED}.`,
-    );
-  }
-
-  if (approvalsRequired > 1 && !holdsApprovalAuthority(input.actor)) {
-    throw problems.forbidden(
-      `Only a ${APPROVAL_AUTHORITY_ROLE} may require more than one signature on a report.`,
-    );
-  }
 
   return withTenant(
     deps.pool,
@@ -125,6 +106,16 @@ export async function createReport(
       assertKnownFields(version.fields, fieldValues);
 
       const digest = contentHash(document, fieldValues);
+
+      // The bar this report has to clear comes from the tenant's rules, resolved inside
+      // this transaction so the report and the rule it cites commit together or not at
+      // all. A missing rule is a refusal, not a default: falling back to 1 would reopen
+      // exactly the hole ADR-0010 closes, in the one deployment state where nobody notices
+      // — a fresh one that never wrote a rule down.
+      const policy = await resolveApprovalPolicy(tx, {
+        templateId: version.template_id,
+        modality: input.modality,
+      });
 
       const study = await tx.query<{ id: string }>(
         `insert into study (org_id, study_instance_uid, accession, modality)
@@ -140,8 +131,8 @@ export async function createReport(
 
       const report = await tx.query<{ id: string }>(
         `insert into report (org_id, study_id, template_version_id, author_id, current_hash,
-                            approvals_required)
-       values ($1, $2, $3, $4, $5, $6)
+                            approvals_required, approval_policy_id)
+       values ($1, $2, $3, $4, $5, $6, $7)
        returning id`,
         [
           input.actor.orgId,
@@ -149,7 +140,8 @@ export async function createReport(
           input.templateVersionId,
           input.actor.userId,
           digest,
-          approvalsRequired,
+          policy.approvals_required,
+          policy.id,
         ],
       );
 
@@ -177,11 +169,14 @@ export async function createReport(
         afterHash: digest,
         // The approval requirement is part of the creation evidence, not configuration:
         // the trail has to show what this report was asked to be, so a later change of
-        // policy cannot be read back onto a report signed under the old one.
+        // policy cannot be read back onto a report signed under the old one. The policy id
+        // is the rest of that answer — not just "three signatures" but "the rule that said
+        // three", which is the row an auditor can pull.
         meta: {
           template_version_id: input.templateVersionId,
           revision: 1,
-          approvals_required: approvalsRequired,
+          approvals_required: policy.approvals_required,
+          approval_policy_id: policy.id,
         },
       });
 
@@ -490,10 +485,13 @@ async function lockReport(tx: Tx, reportId: string): Promise<ReportRow> {
 }
 
 async function loadVersion(tx: Tx, templateVersionId: string): Promise<VersionRow> {
-  const row = await tx.query<{ token_stream: unknown; fields: readonly FieldDescriptor[] }>(
-    'select token_stream, fields from template_version where id = $1',
-    [templateVersionId],
-  );
+  const row = await tx.query<{
+    template_id: string;
+    token_stream: unknown;
+    fields: readonly FieldDescriptor[];
+  }>('select template_id, token_stream, fields from template_version where id = $1', [
+    templateVersionId,
+  ]);
 
   const version = row.rows[0];
   if (version === undefined) throw problems.templateVersionNotFound(templateVersionId);

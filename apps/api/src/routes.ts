@@ -1,6 +1,7 @@
 import { type ZodType } from 'zod';
 
 import { type Actor } from './auth.js';
+import { createApprovalPolicy, listApprovalPolicies } from './domain/approval-policy.js';
 import { createDelegation } from './domain/delegation-service.js';
 import {
   createReport,
@@ -10,6 +11,9 @@ import {
   type ReportServiceDeps,
 } from './domain/report-service.js';
 import {
+  approvalPolicyListSchema,
+  approvalPolicyResourceSchema,
+  createApprovalPolicyBodySchema,
   createDelegationBodySchema,
   createReportBodySchema,
   delegationResourceSchema,
@@ -67,9 +71,45 @@ export const ROUTES: readonly RouteDefinition[] = [
         accession: input.accession,
         modality: input.modality,
         fieldValues: input.field_values ?? {},
-        approvalsRequired: input.approvals_required,
       });
     },
+  },
+  {
+    method: 'post',
+    path: '/v1/approval-policies',
+    operationId: 'createApprovalPolicy',
+    summary: 'Set how many signatures reports in this tenant require',
+    body: createApprovalPolicyBodySchema,
+    params: undefined,
+    okStatus: 201,
+    okSchema: approvalPolicyResourceSchema,
+    requiresIfMatch: false,
+    handler: async ({ actor, deps, body }) => {
+      const input = createApprovalPolicyBodySchema.parse(body);
+
+      return createApprovalPolicy(
+        { pool: deps.pool },
+        {
+          actor,
+          templateId: input.template_id,
+          modality: input.modality,
+          approvalsRequired: input.approvals_required,
+          rationale: input.rationale,
+        },
+      );
+    },
+  },
+  {
+    method: 'get',
+    path: '/v1/approval-policies',
+    operationId: 'listApprovalPolicies',
+    summary: 'Read the approval rules in force for this tenant',
+    body: undefined,
+    params: undefined,
+    okStatus: 200,
+    okSchema: approvalPolicyListSchema,
+    requiresIfMatch: false,
+    handler: async ({ actor, deps }) => listApprovalPolicies({ pool: deps.pool }, actor),
   },
   {
     method: 'post',

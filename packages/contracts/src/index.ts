@@ -107,3 +107,21 @@ export interface DelegationResource {
   readonly starts_at: string;
   readonly expires_at: string;
 }
+
+/**
+ * A rule for how many signatures complete a report (ADR-0010).
+ *
+ * `template_id` and `modality` are both nullable and mean "any". Both null is the
+ * organisation default. The narrowest matching rule wins, so a rule about one exam form
+ * beats a rule about its whole modality.
+ */
+export interface ApprovalPolicyResource {
+  readonly id: string;
+  readonly template_id: string | null;
+  readonly modality: string | null;
+  /** 1 = the author alone; N = the author plus N-1 others (ADR-0007). */
+  readonly approvals_required: number;
+  readonly rationale: string;
+  readonly created_by_user_id: string;
+  readonly created_at: string;
+}

@@ -20,8 +20,9 @@ export const createReportBodySchema = z
     accession: z.string().min(1).max(64).optional(),
     modality: z.string().min(1).max(16),
     field_values: fieldValuesSchema.optional(),
-    /** D3: how many signatures complete the report. 1 is solo sign. */
-    approvals_required: z.number().int().min(1).max(5).optional(),
+    // No `approvals_required`. It is resolved from the tenant's approval policy
+    // (ADR-0010) and a body that tries to set it is rejected by `.strict()` — which is
+    // deliberate: silently ignoring the field would leave a caller believing it worked.
   })
   .strict();
 
@@ -61,6 +62,31 @@ export const delegationResourceSchema = z.object({
   starts_at: z.string(),
   expires_at: z.string(),
 });
+
+export const createApprovalPolicyBodySchema = z
+  .object({
+    /** Omitted means "any template". A rule about one exam form beats one about its modality. */
+    template_id: z.uuid().optional(),
+    /** Omitted means "any modality". Both omitted is the organisation default. */
+    modality: z.string().min(1).max(16).optional(),
+    /** 1 = the author alone; N = the author plus N-1 others. */
+    approvals_required: z.number().int().min(1).max(5),
+    /** Why this number. A rule with no reason is the one that gets changed by whoever is on call. */
+    rationale: z.string().min(1).max(500),
+  })
+  .strict();
+
+export const approvalPolicyResourceSchema = z.object({
+  id: z.uuid(),
+  template_id: z.uuid().nullable(),
+  modality: z.string().nullable(),
+  approvals_required: z.number().int().min(1).max(5),
+  rationale: z.string(),
+  created_by_user_id: z.uuid(),
+  created_at: z.string(),
+});
+
+export const approvalPolicyListSchema = z.array(approvalPolicyResourceSchema);
 
 /** Documentation mirror of `TokenDocument`. Loose: the token union is `tokens`'s to define. */
 export const tokenDocumentSchema = z.looseObject({
