@@ -19,6 +19,15 @@ the documentation set that carries the project from prototype to production.
 │   ├── sw.js                      Service worker — app shell + templates only, never PHI
 │   ├── manifest.webmanifest       Installability
 │   └── README.md                  Prototype documentation: behaviour, limits, real vs. stubbed
+├── packages/                      Production workspace (pnpm + Turborepo) — see below
+│   ├── tokens/                    The serialisation boundary (ADR-0005)
+│   ├── template-schema/           Manifest contract and provenance classification (ADR-0004)
+│   ├── validation/                Severity vocabulary and findings
+│   └── contracts/                 Wire contract: resources, problem details, versioning
+├── apps/                          api · web live here; worker waits for its first job
+│   ├── api/                       Fastify + Zod: create → autosave → sign, plus generated openapi.json
+│   └── web/                       Next.js shell + template library (P2 step 1: read-only)
+├── db/                            PostgreSQL 16 schema, migrations, tenant-isolation test
 ├── alem-reporting-templates/      Source corpus (do not edit — provenance for data/templates.json)
 │   ├── AlemHealth/                290 exported templates
 │   ├── Publicly Shared/           137 exported templates
@@ -30,9 +39,35 @@ the documentation set that carries the project from prototype to production.
     ├── Radiology-Report-PWA-Design.md            Requirements, data model, architecture, risks
     ├── Radiology-PWA-Architecture-and-Stack-Plan.md   Greenfield approach and stack rationale
     ├── Radiology-Reporting-PWA-Production-Plan.md     Production plan: integration, co-sign, dictation
+    ├── adr/                                     One file per decision that is expensive to reverse
     ├── history/                                 Superseded implementations, kept for provenance
     └── qa/                                      QA findings from the prototype build (reports only)
 ```
+
+## Production workspace
+
+The prototype and the production build live in one repository (ADR-0001). The prototype is frozen
+in `radiology-pwa/` and stays runnable; the workspace is where the product is built.
+
+```powershell
+corepack enable pnpm      # Node 22 is pinned in .nvmrc
+pnpm install --frozen-lockfile
+pnpm verify               # lint · format:check · typecheck · test · build
+```
+
+| Command | What it covers |
+|---|---|
+| `pnpm lint` | ESLint flat config, one config at the root |
+| `pnpm typecheck` | `tsc --noEmit` per package; a package's dependencies are built first |
+| `pnpm test` | Vitest, from the root, resolving workspace packages to source |
+| `pnpm corpus` | Regenerate `corpus/` from the frozen export; exits non-zero if any file cannot round-trip |
+| `pnpm db:migrate` | Apply pending migrations (needs `DATABASE_URL` in `.env.local`) |
+| `pnpm openapi` | Regenerate `apps/api/openapi.json` from the Zod schemas (needs a build first) |
+| `pnpm build` | `tsc` per package via Turborepo, into each package's `dist/` |
+| `pnpm verify` | All of the above, in the order CI runs them |
+
+Decisions live in `docs/adr/`. Anything the code does that contradicts an accepted ADR is a bug
+until a superseding ADR merges.
 
 ## Run the prototype
 
@@ -75,12 +110,16 @@ signing) are expensive to retrofit.
 - `main` is the trunk; work happens on short-lived branches and merges through review.
 - Every change that touches the template corpus or the importer must keep the 427/427 round-trip
   green — the corpus is the specification, and silent alteration of clinical wording is the one
-  failure mode this project cannot accept.
+  failure mode this project cannot accept. In the production workspace that gate is
+  `pnpm corpus` plus a CI check that the committed artefacts regenerate byte-identically.
 - Generated artifacts (screenshots, packaged ZIPs, sample PDFs) stay out of the tree; `.gitignore`
   covers them and the tools regenerate them on demand.
 
 ## Third-party content
 
-The corpus includes 130 templates authored by RSNA and 127 authored by other platform users;
-licensing for redistribution is unresolved (risk R1 in the production plan). Treat
+The corpus includes 130 templates authored by RSNA and 128 authored by other platform users; 123
+of those third-party files sit inside the organisation's own scope, and 168 files carry no author
+at all. Licensing for redistribution is unresolved (risk R1 in the production plan; measured
+provenance in [ADR-0004](docs/adr/0004-corpus-provenance-and-licensing.md)). Treat
 `alem-reporting-templates/` as reference material until that is settled.
+

@@ -1,0 +1,43 @@
+{
+  "files": 427,
+  "imported": 427,
+  "quarantined": 0,
+  "round_trip_pass": 427,
+  "round_trip_fail": 0,
+  "fields": 2381,
+  "templates_with_fields": 258,
+  "residual_bracket_templates": 0,
+  "by_type": {
+    "FREE_TEXT": 294,
+    "STRUCTURED": 133
+  },
+  "by_modality": {
+    "": 1,
+    "CT": 86,
+    "CTA": 13,
+    "DX": 32,
+    "MR": 77,
+    "MRA": 6,
+    "MRV": 1,
+    "NM": 18,
+    "PT": 2,
+    "RF": 10,
+    "US": 58,
+    "XR": 123
+  },
+  "by_scope": {
+    "AlemHealth": 290,
+    "Publicly Shared": 137
+  },
+  "by_provenance": {
+    "org_authored": 1,
+    "third_party": 130,
+    "unattributed": 128,
+    "unknown": 168
+  },
+  "transformed": {
+    "bom": 0,
+    "crlf": 0,
+    "escapes": 39
+  }
+}

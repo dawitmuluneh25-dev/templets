@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="AlemHealth Reporting">
+  <rect width="512" height="512" rx="96" fill="#0b5fa5"/>
+  <path d="M256 128v256M128 256h256" stroke="#ffffff" stroke-width="40" stroke-linecap="round"/>
+  <circle cx="256" cy="256" r="176" fill="none" stroke="#ffffff" stroke-width="16" opacity="0.5"/>
+</svg>

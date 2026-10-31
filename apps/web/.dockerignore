@@ -1,0 +1,13 @@
+node_modules
+.next
+.turbo
+.git
+.github
+coverage
+*.log
+
+# Documentation and reference material are not build inputs.
+docs
+radiology-pwa
+alem-reporting-templates
+*.md

@@ -1,6 +1,8 @@
 # ADR-0004 — Corpus provenance: default-deny, immutable source, reviewable artefacts
 
-- **Status:** Accepted (engineering position); licence clearing is **not** resolved by this ADR
+- **Status:** Accepted (engineering position); licence clearing is **not** resolved by this ADR, and
+  no longer needs to be — see [ADR-0009](0009-templates-are-user-property.md), which keeps the
+  classification and drops the gate
 - **Date:** 2026-10-29
 - **Deciders:** project owner; legal (pending)
 - **Relates to:** production plan §4, §7.6, §18.1 (A4), §18.2 (R1), §18.3; ADR-0001
